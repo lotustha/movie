@@ -1,0 +1,44 @@
+name: movie
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.1
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  get: ^4.7.2
+  get_storage: ^2.1.1
+  google_fonts: ^6.3.1
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  dio: ^5.9.0
+  video_player: ^2.10.0
+  dio_cookie_manager: ^3.3.0
+  cookie_jar: ^4.0.8
+  chewie: ^1.13.0
+  video_player_win: ^3.2.0
+  intl: ^0.20.2
+  pull_to_refresh: ^2.0.0
+  window_manager: ^0.5.1
+  wakelock_plus: ^1.4.0
+  app_links: ^6.4.1
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+
