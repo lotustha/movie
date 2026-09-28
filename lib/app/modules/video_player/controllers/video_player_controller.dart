@@ -133,10 +133,14 @@ class CustomVideoPlayerController extends GetxController {
 
     }
 
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeRight,
-      DeviceOrientation.landscapeLeft,
-    ]);
+    // Phones pick the orientation from the video once it loads (portrait
+    // clips stay upright); elsewhere the player is always landscape.
+    if (!_isPhone) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeRight,
+        DeviceOrientation.landscapeLeft,
+      ]);
+    }
     // TVs and desktops: full immersive. Phones keep the navigation bar: with
     // it hidden, Android spends the first BACK only revealing the bars, so
     // leaving the player took two presses.
@@ -250,6 +254,7 @@ class CustomVideoPlayerController extends GetxController {
 
         isPlayerReady.value = true;
         isPlaying.value = true;
+        _matchOrientation();
 
         videoPlayerController.addListener(() {
           isPlaying.value = videoPlayerController.value.isPlaying;
@@ -612,6 +617,21 @@ class CustomVideoPlayerController extends GetxController {
     if (t == null) return;
     scrubTarget.value = null;
     if (isPlayerReady.value) videoPlayerController.seekTo(t);
+  }
+
+  /// Phones: landscape for a landscape video, portrait (upright) for a
+  /// portrait one such as a short-drama clip.
+  bool? _portrait;
+  void _matchOrientation() {
+    if (!_isPhone) return;
+    final size = videoPlayerController.value.size;
+    if (size.width <= 0 || size.height <= 0) return;
+    final portrait = size.height > size.width;
+    if (_portrait == portrait) return;
+    _portrait = portrait;
+    SystemChrome.setPreferredOrientations(portrait
+        ? const [DeviceOrientation.portraitUp]
+        : const [DeviceOrientation.landscapeRight, DeviceOrientation.landscapeLeft]);
   }
 
   // --- Downloads from the episodes panel ---

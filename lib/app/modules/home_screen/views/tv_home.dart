@@ -13,6 +13,7 @@ import '../../../data/user_data.dart';
 import '../../../model/operating_list_model.dart';
 import '../../../model/subject_list.dart';
 import '../../../widgets/app_logo.dart';
+import '../../../widgets/skeleton.dart';
 import '../../../widgets/tv_focusable.dart';
 import '../../Subject_Detail/bindings/subject_detail_binding.dart';
 import '../../Subject_Detail/views/subject_detail_view.dart';
@@ -644,15 +645,48 @@ class _BillboardEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_sidePad, 0, _sidePad, 24),
+    if (loading) {
+      // The slide it becomes: 16:9 art on the right, title / meta / button
+      // and the page dots bottom-left.
+      return Skeleton(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const Positioned(
+              top: 0,
+              right: 0,
+              height: _headerOpen,
+              width: _headerOpen * 16 / 9,
+              child: Bone(radius: 0),
+            ),
+            Positioned(
+              left: _sidePad,
+              bottom: 18,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Bone.text(width: 300, fontSize: 30, lineHeight: 1.1),
+                  SizedBox(height: 8),
+                  Bone.text(width: 260, fontSize: 14),
+                  SizedBox(height: 14),
+                  Row(children: [
+                    Bone(width: 128, height: 38, radius: 8),
+                    SizedBox(width: 16),
+                    Bone(width: 110, height: 6, radius: 3),
+                  ]),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(_sidePad, 0, _sidePad, 24),
       child: Align(
         alignment: Alignment.bottomLeft,
-        child: loading
-            ? const SizedBox(
-                width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3))
-            : const Text('Featured titles are unavailable right now.',
-                style: TextStyle(color: Colors.white38, fontSize: 14)),
+        child: Text('Featured titles are unavailable right now.',
+            style: TextStyle(color: Colors.white38, fontSize: 14)),
       ),
     );
   }
@@ -1091,18 +1125,14 @@ class _SkeletonRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(_sidePad, 12, _sidePad, 12),
-      itemCount: 8,
-      separatorBuilder: (_, _) => const SizedBox(width: _posterGap),
-      itemBuilder: (_, _) => Container(
-        width: _posterW,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(8),
-        ),
+    return Skeleton(
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(_sidePad, 12, _sidePad, 12),
+        itemCount: 9,
+        separatorBuilder: (_, _) => const SizedBox(width: _posterGap),
+        itemBuilder: (_, _) => const Bone(width: _posterW, height: _posterH, radius: 8),
       ),
     );
   }

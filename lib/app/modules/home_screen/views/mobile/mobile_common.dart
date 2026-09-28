@@ -8,6 +8,7 @@ import '../../../../model/subject_list.dart';
 import '../../../Subject_Detail/bindings/subject_detail_binding.dart';
 import '../../../Subject_Detail/views/subject_detail_view.dart';
 import '../../controllers/home_screen_controller.dart';
+import '../../../../widgets/skeleton.dart';
 
 /// Shared pieces of the phone UI: poster tiles, the preview sheet, meta line.
 
@@ -196,24 +197,22 @@ class PosterFallback extends StatelessWidget {
   }
 }
 
+/// A rail of posters still loading: same tile size, gap and padding as the
+/// real rail, shimmering.
 class SkeletonRow extends StatelessWidget {
   const SkeletonRow({super.key, this.width = 112});
   final double width;
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      itemCount: 5,
-      separatorBuilder: (_, _) => const SizedBox(width: 8),
-      itemBuilder: (_, _) => Container(
-        width: width,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(6),
-        ),
+    return Skeleton(
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: 6,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (_, _) => Bone(width: width, height: double.infinity),
       ),
     );
   }

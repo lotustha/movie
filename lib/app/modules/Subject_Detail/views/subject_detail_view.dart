@@ -11,6 +11,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../../app_theme.dart';
 import '../../../model/subject_list.dart';
+import '../../../widgets/skeleton.dart';
 import '../../../widgets/tv_focusable.dart';
 import '../controllers/subject_detail_controller.dart';
 
@@ -1925,69 +1926,168 @@ class _AudioPanel extends StatelessWidget {
 
 // ─── Loading ─────────────────────────────────────────────────────────────────
 
+/// Loading state drawn as the page it becomes (same boxes, same spacing),
+/// shimmering in step, so nothing jumps when the details land.
 class _Skeleton extends StatelessWidget {
   const _Skeleton({super.key, required this.tv});
   final bool tv;
 
   @override
-  Widget build(BuildContext context) {
-    Widget box(double w, double h, {double r = 6}) => Container(
-          width: w,
-          height: h,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(r),
+  Widget build(BuildContext context) => tv ? _tvLayout(context) : _mobileLayout(context);
+
+  Widget _mobileLayout(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final top = MediaQuery.paddingOf(context).top;
+    final heroH = width * 10 / 16 + top; // as _MobileDetail
+    Widget action() => const Expanded(
+          child: SizedBox(
+            height: 56,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [Bone(width: 24, height: 24, radius: 6), SizedBox(height: 4), Bone.text(width: 52, fontSize: 12)],
+            ),
           ),
         );
-    if (!tv) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          box(double.infinity, MediaQuery.sizeOf(context).width * 10 / 16, r: 0),
-          Padding(
-            padding: const EdgeInsets.all(16),
+    return Stack(
+      children: [
+        Skeleton(
+          child: SingleChildScrollView(
+            physics: const NeverScrollableScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                box(120, 10),
-                const SizedBox(height: 10),
-                box(220, 26),
-                const SizedBox(height: 10),
-                box(160, 14),
-                const SizedBox(height: 18),
-                box(double.infinity, 48, r: 10),
+                Bone(width: double.infinity, height: heroH, radius: 0),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Bone.text(width: 130, fontSize: 11),
+                      const SizedBox(height: 6),
+                      Bone.text(width: width * 0.68, fontSize: 26, lineHeight: 1.15),
+                      const SizedBox(height: 10),
+                      const Row(children: [
+                        Bone.text(width: 190, fontSize: 13),
+                        SizedBox(width: 8),
+                        Bone(width: 38, height: 16, radius: 4),
+                        SizedBox(width: 6),
+                        Bone(width: 26, height: 16, radius: 4),
+                      ]),
+                      const SizedBox(height: 16),
+                      const Bone(width: double.infinity, height: 48, radius: 10),
+                      const SizedBox(height: 12),
+                      Row(children: [action(), action(), action()]),
+                      const SizedBox(height: 14),
+                      const Bone.text(width: double.infinity, fontSize: 14, lineHeight: 1.5),
+                      const Bone.text(width: double.infinity, fontSize: 14, lineHeight: 1.5),
+                      Bone.text(width: width * 0.55, fontSize: 14, lineHeight: 1.5),
+                      const SizedBox(height: 24),
+                      const Bone.text(width: 96, fontSize: 18),
+                      const SizedBox(height: 10),
+                      const Row(children: [
+                        Bone(width: 84, height: 32, radius: 16),
+                        SizedBox(width: 6),
+                        Bone(width: 84, height: 32, radius: 16),
+                      ]),
+                      const SizedBox(height: 6),
+                      for (var i = 0; i < 4; i++)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Row(children: [
+                            Bone.circle(size: 44),
+                            SizedBox(width: 14),
+                            Bone.text(width: 96, fontSize: 15),
+                          ]),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-        ],
-      );
-    }
-    // Mirrors the TV layout: headline block, then the button row.
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(_tvSide, _tvTop, _tvSide, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          box(130, 10),
-          const SizedBox(height: 12),
-          box(380, 34),
-          const SizedBox(height: 14),
-          box(280, 14),
-          const SizedBox(height: 16),
-          box(520, 12),
-          const SizedBox(height: 9),
-          box(500, 12),
-          const SizedBox(height: 9),
-          box(360, 12),
-          const SizedBox(height: 24),
-          Row(children: [
-            box(120, 42, r: 8),
-            const SizedBox(width: 10),
-            box(116, 42, r: 8),
-            const SizedBox(width: 10),
-            box(140, 42, r: 8),
-          ]),
-        ],
+        ),
+        // Leaving still works while it loads.
+        Positioned(
+          top: top + 8,
+          left: 8,
+          child: IconButton(
+            tooltip: 'Back',
+            onPressed: Get.back,
+            style: IconButton.styleFrom(backgroundColor: Colors.black38),
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tvLayout(BuildContext context) {
+    return Skeleton(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(_tvSide, _tvTop, _tvSide, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // _TvHeadline
+            const Bone.text(width: 140, fontSize: 11),
+            const SizedBox(height: 8),
+            const Bone.text(width: 400, fontSize: 34, lineHeight: 1.1),
+            const SizedBox(height: 12),
+            const Row(children: [
+              Bone.text(width: 250, fontSize: 14),
+              SizedBox(width: 12),
+              Bone(width: 42, height: 17, radius: 4),
+              SizedBox(width: 6),
+              Bone(width: 26, height: 17, radius: 4),
+            ]),
+            const SizedBox(height: 12),
+            const Bone.text(width: 540, fontSize: 14, lineHeight: 1.5),
+            const Bone.text(width: 520, fontSize: 14, lineHeight: 1.5),
+            const Bone.text(width: 360, fontSize: 14, lineHeight: 1.5),
+            const SizedBox(height: 18),
+            // Actions row
+            const Row(children: [
+              Bone(width: 138, height: 42, radius: 8),
+              SizedBox(width: 6),
+              Bone(width: 126, height: 42, radius: 8),
+              SizedBox(width: 10),
+              Bone(width: 154, height: 42, radius: 8),
+            ]),
+            const SizedBox(height: 30),
+            // Episodes block
+            const Bone.text(width: 100, fontSize: 17),
+            const SizedBox(height: 12),
+            const Row(children: [
+              Bone(width: 96, height: 34, radius: 17),
+              SizedBox(width: 8),
+              Bone(width: 96, height: 34, radius: 17),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              for (var i = 0; i < 7; i++) ...[
+                const Bone(width: _epW, height: _epH, radius: 10),
+                const SizedBox(width: 10),
+              ],
+            ]),
+            const SizedBox(height: 28),
+            // Cast
+            const Bone.text(width: 60, fontSize: 15),
+            const SizedBox(height: 10),
+            Row(children: [
+              for (var i = 0; i < 8; i++) ...[
+                const SizedBox(
+                  width: 82,
+                  child: Column(children: [
+                    Bone.circle(size: 50),
+                    SizedBox(height: 6),
+                    Bone.text(width: 60, fontSize: 12),
+                  ]),
+                ),
+                const SizedBox(width: 12),
+              ],
+            ]),
+          ],
+        ),
       ),
     );
   }

@@ -13,6 +13,7 @@ import '../../../../widgets/app_logo.dart';
 import '../../controllers/home_screen_controller.dart';
 import '../../../../services/prefs.dart';
 import '../../../settings/adult_gate.dart';
+import '../../../../widgets/skeleton.dart';
 import 'category_view.dart';
 import 'mobile_common.dart';
 
@@ -422,18 +423,18 @@ class _HeroCardState extends State<_HeroCard> {
     return Obx(() {
       final items = _items();
       if (items.isEmpty) {
+        final loading = c.isFeedLoading.value || c.isLoading.value || (widget.adult && c.isAdultLoading.value);
         return Padding(
-          padding: EdgeInsets.only(top: widget.topInset),
-          child: SizedBox(
-            height: cardH + 20,
-            child: Center(
-              child: c.isFeedLoading.value || c.isLoading.value
-                  ? const SizedBox(
-                      width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 3))
-                  : const Text('Featured titles are unavailable right now.',
-                      style: TextStyle(color: Colors.white38, fontSize: 14)),
-            ),
-          ),
+          padding: EdgeInsets.only(top: widget.topInset, bottom: 8),
+          child: loading
+              ? _HeroSkeleton(cardW: cardW, cardH: cardH)
+              : SizedBox(
+                  height: cardH + 20,
+                  child: const Center(
+                    child: Text('Featured titles are unavailable right now.',
+                        style: TextStyle(color: Colors.white38, fontSize: 14)),
+                  ),
+                ),
         );
       }
       final current = items[_index.clamp(0, items.length - 1)];
@@ -494,6 +495,72 @@ class _HeroCardState extends State<_HeroCard> {
         ),
       );
     });
+  }
+}
+
+/// The hero card while the feed loads: the card (with the next one peeking
+/// in, as the 0.86 viewport shows it), its genre line and two buttons, and the
+/// page dots.
+class _HeroSkeleton extends StatelessWidget {
+  const _HeroSkeleton({required this.cardW, required this.cardH});
+  final double cardW;
+  final double cardH;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final side = (width - width * 0.86) / 2 + 6; // PageView inset + card padding
+    Widget card({bool content = true}) => Container(
+          width: cardW,
+          height: cardH,
+          decoration: BoxDecoration(color: Skeleton.base, borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.all(14),
+          alignment: Alignment.bottomCenter,
+          child: content
+              ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Bone.text(width: 150, fontSize: 13),
+                    SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(child: Bone(height: 42, radius: 6)),
+                      SizedBox(width: 10),
+                      Expanded(child: Bone(height: 42, radius: 6)),
+                    ]),
+                  ],
+                )
+              : null,
+        );
+    return Skeleton(
+      child: Column(
+        children: [
+          SizedBox(
+            height: cardH,
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: Alignment.centerLeft,
+                maxWidth: double.infinity,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [SizedBox(width: side), card(), const SizedBox(width: 12), card(content: false)],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Bone(width: 16, height: 6, radius: 3),
+              for (var i = 0; i < 5; i++) ...[
+                const SizedBox(width: 6),
+                const Bone(width: 6, height: 6, radius: 3),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -704,7 +771,27 @@ class _Top10Rail extends StatelessWidget {
           SizedBox(
             height: _posterH,
             child: subjects.isEmpty
-                ? const SkeletonRow(width: _posterW)
+                ? Skeleton(
+                    // Numeral slot on the left, poster on the right, per item.
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(left: 4, right: 16),
+                      itemCount: 5,
+                      itemBuilder: (_, _) => SizedBox(
+                        width: itemW,
+                        child: const Row(
+                          children: [
+                            SizedBox(width: 14),
+                            Bone(width: 20, height: 96, radius: 6),
+                            Spacer(),
+                            Bone(width: _posterW, height: _posterH),
+                            SizedBox(width: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
                 : ListView.builder(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.only(left: 4, right: 16),
