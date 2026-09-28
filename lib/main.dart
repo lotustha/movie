@@ -156,6 +156,9 @@ class _MyAppState extends State<MyApp> {
           theme: AppTheme.darkTheme,
           initialRoute: AppPages.INITIAL,
           getPages: AppPages.routes,
+          // Any unknown route (e.g. a link path handed over as the start
+          // route) starts normally instead of on a blank screen.
+          unknownRoute: AppPages.routes.first,
           builder: (context, child) {
             return Scaffold(
               body: Column(

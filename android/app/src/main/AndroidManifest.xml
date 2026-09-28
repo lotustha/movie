@@ -38,6 +38,13 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
+            <!-- Launcher links are handled by app_links (main.dart). Flutter's own
+                 deep linking would use the link path (/resume/<id>) as the first
+                 route, which doesn't exist, and start on a blank screen. -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="false" />
+
             <!-- This is your existing intent filter for deep linking, which is fine. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
