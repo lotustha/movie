@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+
+import '../../routes/app_pages.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../app_theme.dart';
@@ -13,7 +16,11 @@ import '../../widgets/tv_focusable.dart';
 /// the link and type the code) on a phone or computer that's signed in, and
 /// this screen signs itself in once that's approved.
 class TvSignInView extends StatefulWidget {
-  const TvSignInView({super.key});
+  const TvSignInView({super.key, this.required = false});
+
+  /// The TV's entry gate: no "Not now"; BACK leaves the app and approval
+  /// continues to Home.
+  final bool required;
 
   @override
   State<TvSignInView> createState() => _TvSignInViewState();
@@ -74,7 +81,12 @@ class _TvSignInViewState extends State<TvSignInView> {
       _poll?.cancel();
       setState(() {});
       await Future.delayed(const Duration(milliseconds: 1400));
-      if (mounted) Get.back();
+      if (!mounted) return;
+      if (widget.required) {
+        Get.offAllNamed(Routes.HOME_SCREEN);
+      } else {
+        Get.back();
+      }
     } else if (status == TvLinkStatus.expired) {
       _poll?.cancel();
       setState(() {});
@@ -85,7 +97,12 @@ class _TvSignInViewState extends State<TvSignInView> {
   Widget build(BuildContext context) {
     final s = _session;
     final expired = s != null && DateTime.now().isAfter(s.expiresAt);
-    return Scaffold(
+    return PopScope(
+      canPop: !widget.required,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) SystemNavigator.pop();
+      },
+      child: Scaffold(
       body: Container(
         decoration: BoxDecoration(
           gradient: RadialGradient(
@@ -115,6 +132,12 @@ class _TvSignInViewState extends State<TvSignInView> {
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
+                                      if (widget.required)
+                                        const Padding(
+                                          padding: EdgeInsets.only(bottom: 8),
+                                          child: Text('Sign in to watch on this TV',
+                                              style: TextStyle(color: Colors.white70, fontSize: 18)),
+                                        ),
                                       const Text('Sign in with your phone',
                                           style: TextStyle(
                                               color: Colors.white, fontSize: 34, fontWeight: FontWeight.w800)),
@@ -132,7 +155,7 @@ class _TvSignInViewState extends State<TvSignInView> {
                                       const SizedBox(height: 28),
                                       TvFocusable(
                                         autofocus: true,
-                                        onSelect: Get.back,
+                                        onSelect: widget.required ? SystemNavigator.pop : Get.back,
                                         builder: (context, focused) => AnimatedContainer(
                                           duration: const Duration(milliseconds: 140),
                                           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
@@ -140,7 +163,7 @@ class _TvSignInViewState extends State<TvSignInView> {
                                             color: focused ? Colors.white : Colors.white12,
                                             borderRadius: BorderRadius.circular(8),
                                           ),
-                                          child: Text('Not now',
+                                          child: Text(widget.required ? 'Exit' : 'Not now',
                                               style: TextStyle(
                                                   color: focused ? Colors.black : Colors.white,
                                                   fontSize: 16,
@@ -171,6 +194,7 @@ class _TvSignInViewState extends State<TvSignInView> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

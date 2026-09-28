@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../routes/app_pages.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/device.dart';
+import '../../account/tv_sign_in_view.dart';
 import '../../../widgets/app_logo.dart';
 
 /// Pro animated splash: the brand tile springs in, the wordmark reveals, a
@@ -51,6 +54,11 @@ class _SplashViewState extends State<SplashView>
     // Hand off to home once the intro has played + a short hold.
     Future.delayed(const Duration(milliseconds: 2300), () {
       if (!mounted) return;
+      // No account, no TV: the TV opens on sign-in and continues from there.
+      if (Device.isTv && !AuthService.to.isSignedIn) {
+        Get.offAll(() => const TvSignInView(required: true), transition: Transition.fadeIn);
+        return;
+      }
       Get.offAllNamed(Routes.HOME_SCREEN);
       final link = AppPages.pendingDetailArgs;
       AppPages.pendingDetailArgs = null;

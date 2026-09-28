@@ -11,6 +11,7 @@ import 'mobile_common.dart';
 import 'my_noonflix_tab.dart';
 import 'new_hot_tab.dart';
 import 'search_tab.dart';
+import '../../../downloads/downloads_view.dart' show registerDownloadPrompts;
 
 /// Phone layout: Netflix-style bottom navigation over three tabs. Tabs are
 /// kept alive in an IndexedStack so switching back keeps each scroll position.
@@ -30,6 +31,7 @@ class _MobileShellState extends State<MobileShell> {
   void initState() {
     super.initState();
     mobileTabRequest.addListener(_onTabRequest);
+    registerDownloadPrompts();
   }
 
   @override

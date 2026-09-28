@@ -20,6 +20,8 @@ class AppPrefs extends GetxService {
   static const _kWifiOnly = 'pref_download_wifi_only';
   static const _kSmart = 'pref_smart_downloads';
   static const _kQuality = 'pref_download_quality';
+  static const _kLimit = 'pref_download_limit_gb';
+  static const _kDeleteWatched = 'pref_delete_watched';
   // Shared with the player, which owns the "Autoplay next episode" toggle.
   static const kAutoplay = 'user_pref_autoplay_next';
 
@@ -63,6 +65,25 @@ class AppPrefs extends GetxService {
   late final RxString downloadQuality = (_s.read<String>(_kQuality) ?? 'standard').obs;
 
   late final RxBool autoplayNext = (_s.read(kAutoplay) != false).obs;
+
+  /// Space the downloads may use, in GB; 0 = no limit.
+  late final RxInt downloadLimitGb = RxInt(_s.read<int>(_kLimit) ?? 0);
+
+  /// What happens to a download once it's watched:
+  /// 'immediately' — deleted when it ends; 'whenFull' — kept until the
+  /// storage limit is reached, then the oldest watched go first; 'ask' —
+  /// never deleted without asking.
+  late final RxString deleteWatched = RxString(_s.read<String>(_kDeleteWatched) ?? 'whenFull');
+
+  void setDownloadLimitGb(int gb) {
+    downloadLimitGb.value = gb;
+    _s.write(_kLimit, gb);
+  }
+
+  void setDeleteWatched(String mode) {
+    deleteWatched.value = mode;
+    _s.write(_kDeleteWatched, mode);
+  }
 
   void setAdultEnabled(bool on) {
     adultEnabled.value = on;

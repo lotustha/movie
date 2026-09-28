@@ -46,6 +46,8 @@ class MainActivity: FlutterActivity() {
                         result.success(null)
                     }
                 }
+                // Android TV (leanback): the app asks before letting anyone watch.
+                "isTv" -> result.success(TvChannels.isTv(applicationContext))
                 else -> result.notImplemented()
             }
         }

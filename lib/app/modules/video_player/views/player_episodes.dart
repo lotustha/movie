@@ -150,6 +150,7 @@ class _EpisodesSheetState extends State<_EpisodesSheet> {
                 return _EpisodeRow(
                   focusNode: _rowNode(i),
                   episode: ep,
+                  season: season,
                   playing: playing,
                   // Land on the playing episode when the panel opens.
                   autofocus: playing,
@@ -211,6 +212,7 @@ class _SeasonChip extends StatelessWidget {
 class _EpisodeRow extends StatelessWidget {
   const _EpisodeRow({
     required this.episode,
+    required this.season,
     required this.playing,
     required this.onSelect,
     this.autofocus = false,
@@ -219,6 +221,7 @@ class _EpisodeRow extends StatelessWidget {
 
   final FocusNode? focusNode;
   final int episode;
+  final int season;
   final bool playing;
   final VoidCallback onSelect;
   final bool autofocus;
@@ -260,11 +263,29 @@ class _EpisodeRow extends StatelessWidget {
                       )),
                 ),
                 Expanded(
-                  child: Text('Episode $episode',
-                      style: TextStyle(
-                          color: focused ? dark : Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Episode $episode',
+                          style: TextStyle(
+                              color: focused ? dark : Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600)),
+                      if (DownloadService.supported)
+                        Obx(() {
+                          DownloadService.to.items.length;
+                          final it = DownloadService.to.itemFor(
+                              Get.find<CustomVideoPlayerController>().subject.value?.subjectId, season, episode);
+                          if (it?.state != DownloadState.complete) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(it!.watched ? 'Downloaded · watched' : 'Downloaded · plays offline',
+                                style: TextStyle(
+                                    color: focused ? Colors.black54 : const Color(0xFF3DDC84), fontSize: 11)),
+                          );
+                        }),
+                    ],
+                  ),
                 ),
                 if (playing) ...[
                   Icon(Icons.equalizer_rounded, size: 16, color: focused ? dark : kBrandPurple),
@@ -273,12 +294,87 @@ class _EpisodeRow extends StatelessWidget {
                       style: TextStyle(color: focused ? Colors.black54 : Colors.white60, fontSize: 11)),
                 ] else
                   Icon(Icons.play_arrow_rounded, size: 20, color: focused ? dark : Colors.white24),
+                // Phones only: TVs stream (DownloadService.supported), and a
+                // D-pad row has one action (play).
+                if (DownloadService.supported && !_isTvLayout(context))
+                  _EpisodeDownloadButton(season: season, episode: episode, dark: focused),
               ],
             ),
           );
         },
       ),
     );
+  }
+}
+
+/// Netflix's download control: an arrow, a radial progress ring while it
+/// downloads (tap to pause / resume), a check when it's on the phone.
+class _EpisodeDownloadButton extends StatelessWidget {
+  const _EpisodeDownloadButton({required this.season, required this.episode, this.dark = false});
+  final int season;
+  final int episode;
+  final bool dark;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Get.find<CustomVideoPlayerController>();
+    final svc = DownloadService.to;
+    return Obx(() {
+      svc.items.length;
+      final item = svc.itemFor(c.subject.value?.subjectId, season, episode);
+      final state = item?.state;
+      final fg = dark ? const Color(0xFF111114) : Colors.white;
+      Widget face;
+      String tip;
+      VoidCallback? onTap;
+      switch (state) {
+        case null:
+          face = Icon(Icons.download_rounded, color: fg.withValues(alpha: 0.85), size: 22);
+          tip = 'Download episode $episode';
+          onTap = () => c.downloadEpisode(season, episode);
+        case DownloadState.complete:
+          face = Container(
+            width: 26,
+            height: 26,
+            decoration: const BoxDecoration(color: Color(0xFF3DDC84), shape: BoxShape.circle),
+            child: const Icon(Icons.check_rounded, color: Colors.black, size: 18),
+          );
+          tip = 'Downloaded';
+          onTap = null;
+        case DownloadState.failed:
+          face = const Icon(Icons.error_outline_rounded, color: kBrandRed, size: 24);
+          tip = 'Retry download';
+          onTap = () => c.downloadEpisode(season, episode);
+        case DownloadState.running:
+        case DownloadState.paused:
+        case DownloadState.queued:
+          final paused = state == DownloadState.paused;
+          face = SizedBox(
+            width: 28,
+            height: 28,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: state == DownloadState.queued ? null : item!.progress.clamp(0.0, 1.0),
+                  strokeWidth: 2.6,
+                  color: kBrandPurple,
+                  backgroundColor: fg.withValues(alpha: 0.18),
+                ),
+                Icon(paused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 14, color: fg),
+              ],
+            ),
+          );
+          tip = paused ? 'Resume download' : 'Pause download';
+          onTap = () => paused ? svc.resume(item!) : svc.pause(item!);
+      }
+      return IconButton(
+        tooltip: tip,
+        onPressed: onTap,
+        constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+        icon: face,
+      );
+    });
   }
 }
 

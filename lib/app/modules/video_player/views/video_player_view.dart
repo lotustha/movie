@@ -6,6 +6,7 @@ import 'package:movie/app_theme.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../model/subject_list.dart';
+import '../../../services/download_service.dart';
 import '../../../widgets/tv_focusable.dart';
 import '../controllers/video_player_controller.dart';
 

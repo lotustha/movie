@@ -137,7 +137,14 @@ class CustomVideoPlayerController extends GetxController {
       DeviceOrientation.landscapeRight,
       DeviceOrientation.landscapeLeft,
     ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // TVs and desktops: full immersive. Phones keep the navigation bar: with
+    // it hidden, Android spends the first BACK only revealing the bars, so
+    // leaving the player took two presses.
+    if (_isPhone) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
 
     // -------------------------------------------------------
     // LOAD PREFERENCES
@@ -194,7 +201,9 @@ class CustomVideoPlayerController extends GetxController {
       closeSettingPanel();
       return;
     }
-    if (!showControls.value) {
+    // Remote only: the first BACK brings hidden controls up. On a phone BACK
+    // leaves at once, as in Netflix.
+    if (!showControls.value && !_isPhone) {
       showControls.value = true;
       resetControlsTimer();
       return;
@@ -605,6 +614,28 @@ class CustomVideoPlayerController extends GetxController {
     if (isPlayerReady.value) videoPlayerController.seekTo(t);
   }
 
+  // --- Downloads from the episodes panel ---
+
+  Map<int, List<int>> get _episodeMap => {
+        for (final s in resource.value?.seasons ?? const <SeasonResource>[])
+          if ((s.se ?? 0) > 0) s.se!: episodesFor(s.se!),
+      };
+
+  /// Starts (or retries) an episode download of the opened title.
+  Future<void> downloadEpisode(int season, int episode) async {
+    final s = subject.value;
+    if (s == null) return;
+    final existing = DownloadService.to.itemFor(s.subjectId, season, episode);
+    if (existing != null && existing.state == DownloadState.failed) {
+      await DownloadService.to.retry(existing);
+      return;
+    }
+    final err = await DownloadService.to.download(s, season: season, episode: episode, episodes: _episodeMap);
+    if (err != null) {
+      Get.snackbar('Download', err, snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
+    }
+  }
+
   // --- Touch: vertical swipe — left half brightness, right half volume ---
 
   /// 'brightness' | 'volume' while a vertical swipe is in progress.
@@ -616,6 +647,15 @@ class CustomVideoPlayerController extends GetxController {
   bool _brightnessChanged = false;
 
   static bool get _touchPlatform => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  /// A touch phone / tablet. A TV box is wide but short in logical pixels
+  /// (1080p at 2x is 960×540); phones stay under 900 wide, tablets are tall.
+  static bool get _isPhone {
+    if (!_touchPlatform) return false;
+    final long = Get.width > Get.height ? Get.width : Get.height;
+    final short = Get.width > Get.height ? Get.height : Get.width;
+    return !(long >= 900 && short < 700);
+  }
 
   Future<void> startLevelDrag({required bool rightSide}) async {
     if (!_touchPlatform) return;

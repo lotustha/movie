@@ -9,7 +9,10 @@ import 'package:movie/app/modules/home_screen/controllers/home_screen_controller
 import 'package:video_player/video_player.dart';
 
 import '../../../model/StreamInfo.dart';
+import '../../../services/auth_service.dart';
+import '../../../services/device.dart';
 import '../../../services/download_service.dart';
+import '../../account/tv_sign_in_view.dart';
 import '../../../model/subject_list.dart';
 import '../../video_player/bindings/video_player_binding.dart';
 import '../../video_player/views/video_player_view.dart';
@@ -377,6 +380,11 @@ class SubjectDetailController extends GetxController {
       required int episode,
       Duration startAt = Duration.zero}) async {
     if (isLoading.value || isStarting.value) return;
+    // No account, no TV (also covers launcher links that skip the gate).
+    if (Device.isTv && !AuthService.to.isSignedIn) {
+      await Get.to(() => const TvSignInView());
+      if (!AuthService.to.isSignedIn) return;
+    }
 
     // Block the trailer from here on, even one still initializing (see
     // [_trailer]); it comes back when the player closes.

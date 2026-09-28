@@ -8,6 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../../app_theme.dart';
 import '../../data/user_data.dart';
 import '../../services/auth_service.dart';
+import '../../services/device.dart';
 import '../../services/download_service.dart';
 import '../../services/prefs.dart';
 import '../../services/sync_service.dart';
@@ -83,7 +84,12 @@ class SettingsView extends StatelessWidget {
                     onTap: () async {
                       final ok = await _confirm('Sign out?',
                           'My List and Continue Watching stay on this device.');
-                      if (ok) await auth.signOut();
+                      if (!ok) return;
+                      await auth.signOut();
+                      // A TV can't be used signed out: back to its sign-in screen.
+                      if (Device.isTv) {
+                        Get.offAll(() => const TvSignInView(required: true), transition: Transition.fadeIn);
+                      }
                     },
                   ),
                 ],
@@ -130,9 +136,23 @@ class SettingsView extends StatelessWidget {
                   _SwitchTile(
                     icon: Icons.auto_awesome_rounded,
                     title: 'Smart Downloads',
-                    subtitle: 'After you finish a downloaded episode, delete it and download the next one.',
+                    subtitle: 'When you finish an episode, the next one downloads.',
                     value: prefs.smartDownloads.value,
                     onChanged: prefs.setSmartDownloads,
+                  ),
+                  _Tile(
+                    icon: Icons.delete_sweep_outlined,
+                    title: 'Delete watched downloads',
+                    subtitle: deleteWatchedLabel(prefs.deleteWatched.value),
+                    trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+                    onTap: pickDeleteWatchedMode,
+                  ),
+                  _Tile(
+                    icon: Icons.sd_storage_outlined,
+                    title: 'Download storage limit',
+                    subtitle: '${limitLabel(prefs.downloadLimitGb.value)} · ${formatBytes(DownloadService.to.reservedBytes)} used',
+                    trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+                    onTap: pickStorageLimit,
                   ),
                   _Tile(
                     icon: Icons.high_quality_rounded,

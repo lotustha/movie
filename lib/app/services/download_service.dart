@@ -17,6 +17,9 @@ import 'prefs.dart';
 
 enum DownloadState { queued, running, paused, failed, complete }
 
+/// The user's answer when a download doesn't fit the storage limit.
+enum StorageChoice { deleteWatched, downloadAnyway, cancel }
+
 /// One downloaded (or downloading) movie / episode.
 class DownloadItem {
   DownloadItem(this.data);
@@ -39,6 +42,15 @@ class DownloadItem {
       DownloadState.values.firstWhere((s) => s.name == data['state'], orElse: () => DownloadState.queued);
   String? get error => data['error'] as String?;
   bool get waitingForWifi => data['waitingWifi'] == true;
+
+  /// Set when playback of this download reached its end.
+  DateTime? get watchedAt {
+    final ms = (data['watchedAt'] as num?)?.toInt();
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  bool get watched => watchedAt != null;
+  bool get active => state == DownloadState.running || state == DownloadState.queued || state == DownloadState.paused;
 
   /// Season → episode numbers, saved at download time for Smart Downloads.
   Map<int, List<int>> get episodeMap => {
@@ -120,6 +132,51 @@ class DownloadService extends GetxService {
   int get usedBytes =>
       items.where((i) => i.state == DownloadState.complete).fold(0, (sum, i) => sum + i.totalBytes);
 
+  /// Space downloads take or will take (finished files + expected sizes).
+  int get reservedBytes => items.fold(0, (sum, i) => sum + i.totalBytes);
+
+  int get limitBytes => AppPrefs.to.downloadLimitGb.value * 1024 * 1024 * 1024;
+
+  List<DownloadItem> get watchedItems =>
+      items.where((i) => i.state == DownloadState.complete && i.watched).toList()
+        ..sort((a, b) => a.watchedAt!.compareTo(b.watchedAt!));
+
+  /// Shown when a download won't fit and deleting isn't automatic; set by
+  /// the UI layer (a dialog). Without one, the download is refused.
+  Future<StorageChoice> Function(int needBytes, int freeableBytes)? onStorageFull;
+
+  /// Frees room for [need] bytes under the storage limit, following the
+  /// user's "watched downloads" choice. True when the download may go ahead.
+  Future<bool> _makeRoom(int need) async {
+    final limit = limitBytes;
+    if (limit <= 0) return true;
+    int over() => reservedBytes + need - limit;
+    if (over() <= 0) return true;
+    final mode = AppPrefs.to.deleteWatched.value;
+    if (mode == 'whenFull') {
+      for (final w in watchedItems) {
+        if (over() <= 0) break;
+        await delete(w);
+      }
+      if (over() <= 0) return true;
+    }
+    final freeable = watchedItems.fold<int>(0, (s, i) => s + i.totalBytes);
+    final ask = onStorageFull;
+    if (ask == null) return false;
+    switch (await ask(over(), freeable)) {
+      case StorageChoice.deleteWatched:
+        for (final w in watchedItems) {
+          if (over() <= 0) break;
+          await delete(w);
+        }
+        return true; // what's left is the user's call: they chose to go on
+      case StorageChoice.downloadAnyway:
+        return true;
+      case StorageChoice.cancel:
+        return false;
+    }
+  }
+
   int get activeCount =>
       items.where((i) => i.state == DownloadState.running || i.state == DownloadState.queued).length;
 
@@ -170,6 +227,9 @@ class DownloadService extends GetxService {
 
     final stream = await _pickStream(subject, season, episode, quality ?? AppPrefs.to.downloadQuality.value);
     if (stream == null) return 'This title is not available to download right now.';
+    if (existing == null && !await _makeRoom(int.tryParse(stream.size ?? '') ?? 0)) {
+      return 'Not enough download space. Delete downloads or raise the limit in Settings.';
+    }
 
     final key = keyFor(id, season, episode);
     final snap = UserData.snapshot(subject.toJson());
@@ -314,17 +374,34 @@ class DownloadService extends GetxService {
     }
   }
 
-  /// Called by the player as an episode ends. With Smart Downloads on, a
-  /// watched download is deleted and the next episode starts downloading.
+  /// Called by the player as a movie / episode ends. The download is marked
+  /// watched (and deleted now if the user chose "immediately"); with Smart
+  /// Downloads on, the next episode starts downloading.
   Future<void> onFinished(Subject subject, int season, int episode) async {
-    if (!supported || !AppPrefs.to.smartDownloads.value) return;
+    if (!supported) return;
     final it = itemFor(subject.subjectId, season, episode);
-    if (it == null || it.state != DownloadState.complete || !it.isEpisode) return;
-    final next = _nextAfter(it.episodeMap, season, episode);
-    await delete(it);
-    if (next == null || itemFor(subject.subjectId, next.$1, next.$2) != null) return;
+    if (it == null || it.state != DownloadState.complete) return;
+    it.data['watchedAt'] ??= DateTime.now().millisecondsSinceEpoch;
+    _put(it);
+    final next = it.isEpisode ? _nextAfter(it.episodeMap, season, episode) : null;
+    if (AppPrefs.to.deleteWatched.value == 'immediately') await delete(it);
+    if (!AppPrefs.to.smartDownloads.value || next == null) return;
+    if (itemFor(subject.subjectId, next.$1, next.$2) != null) return;
     await download(it.subject, season: next.$1, episode: next.$2, episodes: it.episodeMap,
         quality: (int.tryParse(it.quality) ?? 0) > 720 ? 'high' : 'standard');
+  }
+
+  Future<void> deleteItems(Iterable<DownloadItem> list) async {
+    for (final it in list.toList()) {
+      await delete(it);
+    }
+  }
+
+  /// Watched downloads of one title (or all titles).
+  Future<int> deleteWatched([String? subjectId]) async {
+    final gone = watchedItems.where((i) => subjectId == null || i.subjectId == subjectId).toList();
+    await deleteItems(gone);
+    return gone.length;
   }
 
   static (int, int)? _nextAfter(Map<int, List<int>> eps, int season, int episode) {
