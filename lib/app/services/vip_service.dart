@@ -84,6 +84,11 @@ class VipService extends GetxService {
 
   bool get isVip => subscribed.value || remaining != null;
 
+  /// 18+ (Midnight) is for VIP subscribers only — never for time earned by
+  /// watching an ad, so ads and adult content never meet. With the paywall
+  /// off nothing is monetized and the viewer's own setting decides.
+  bool get adultAllowed => subscribed.value || paywall.value == false;
+
   /// May play now. Unknown paywall state (offline, first launch) counts as
   /// free, so a network hiccup never locks anyone out.
   bool get hasAccess => paywall.value != true || isVip;

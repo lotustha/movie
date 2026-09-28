@@ -272,7 +272,7 @@ class _TopBar extends StatelessWidget {
                   trailing: Icons.keyboard_arrow_down_rounded,
                   onTap: () => showCategoryPicker(context),
                 ),
-                if (filter == MediaFilter.all && AppPrefs.to.adultEnabled.value) ...[
+                if (filter == MediaFilter.all && AppPrefs.to.adultOn) ...[
                   const SizedBox(width: 8),
                   _Chip(label: '18+', onTap: onAdult),
                 ],
@@ -999,7 +999,7 @@ void _showContinueMenu(Subject s) {
               openDetail(s);
             },
           ),
-          if (AppPrefs.to.adultEnabled.value)
+          if (AppPrefs.to.adultOn)
             ListTile(
               leading: const Icon(Icons.nightlight_round, color: Colors.white),
               title: const Text('Move to Midnight (18+)', style: TextStyle(color: Colors.white)),

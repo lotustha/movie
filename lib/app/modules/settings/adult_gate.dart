@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import '../../../app_theme.dart';
 import '../../services/prefs.dart';
+import '../../services/vip_service.dart';
 import '../../services/sync_service.dart';
 import '../home_screen/controllers/home_screen_controller.dart';
 
@@ -11,6 +12,11 @@ import '../home_screen/controllers/home_screen_controller.dart';
 /// The choice follows the account (ani-nexus `showAdultContent`).
 Future<void> setAdultEnabled(bool on) async {
   final prefs = AppPrefs.to;
+  if (on && !VipService.to.adultAllowed) {
+    Get.snackbar('VIP only', '18+ content is available to VIP subscribers.',
+        snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
+    return;
+  }
   if (on) {
     final ok = await Get.dialog<bool>(AlertDialog(
       backgroundColor: const Color(0xFF1F1F27),
@@ -50,7 +56,7 @@ Future<void> setAdultEnabled(bool on) async {
 /// True when the 18+ rows may be shown now, asking for the PIN if needed.
 Future<bool> requireAdultAccess() async {
   final prefs = AppPrefs.to;
-  if (!prefs.adultEnabled.value) return false;
+  if (!prefs.adultOn) return false;
   if (prefs.adultVisible) return true;
   return unlockAdult();
 }

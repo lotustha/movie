@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 import '../model/subject_list.dart';
+import 'vip_service.dart';
 
 /// App settings, persisted on the device and reactive for the settings UI.
 class AppPrefs extends GetxService {
@@ -111,11 +112,14 @@ class AppPrefs extends GetxService {
   static bool isAdultTagged(String? genre, String? title) =>
       _adultTag.hasMatch(genre ?? '') || (title ?? '').contains('18+');
 
-  bool hideAdult(String? genre, String? title) => !adultEnabled.value && isAdultTagged(genre, title);
+  /// 18+ really on: the viewer opted in AND is a VIP subscriber.
+  bool get adultOn => adultEnabled.value && VipService.to.adultAllowed;
+
+  bool hideAdult(String? genre, String? title) => !adultOn && isAdultTagged(genre, title);
 
   /// Keep [s] out of the regular rows / search: 18+ and 18+ is off.
   bool hideSubject(Subject s) =>
-      !adultEnabled.value && (_adultIds.contains(s.subjectId) || isAdultTagged(s.genre, s.title));
+      !adultOn && (_adultIds.contains(s.subjectId) || isAdultTagged(s.genre, s.title));
 
   void setAdultPin(String? pin) {
     final hash = (pin == null || pin.isEmpty) ? '' : _hash(pin);
@@ -131,7 +135,7 @@ class AppPrefs extends GetxService {
   }
 
   /// Whether the 18+ rows may be shown right now.
-  bool get adultVisible => adultEnabled.value && (!hasAdultPin || adultUnlocked.value);
+  bool get adultVisible => adultOn && (!hasAdultPin || adultUnlocked.value);
 
   void setWifiOnly(bool on) {
     wifiOnlyDownloads.value = on;

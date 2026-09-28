@@ -120,7 +120,7 @@ class SettingsView extends StatelessWidget {
                       : 'Removes every title from Continue Watching on this device.',
                   onTap: () => clearContinueWatching(),
                 ),
-                if (prefs.adultEnabled.value)
+                if (prefs.adultOn)
                   _Tile(
                     icon: Icons.nightlight_round,
                     title: 'Clear Midnight Continue Watching',
@@ -193,15 +193,18 @@ class SettingsView extends StatelessWidget {
                       },
                     ),
                 ],
-                const _Header('Content'),
-                _SwitchTile(
-                  icon: Icons.nightlight_round,
-                  title: 'Show 18+ content',
-                  subtitle: 'Adds the Midnight section for adults. Off by default.',
-                  value: prefs.adultEnabled.value,
-                  onChanged: (on) => setAdultEnabled(on),
-                ),
-                if (prefs.adultEnabled.value) ...[
+                // 18+ exists only for VIP subscribers: nobody else sees it at all.
+                if (VipService.to.adultAllowed) ...[
+                  const _Header('Content'),
+                  _SwitchTile(
+                    icon: Icons.nightlight_round,
+                    title: 'Show 18+ content',
+                    subtitle: 'Adds the Midnight section for adults. Off by default.',
+                    value: prefs.adultOn,
+                    onChanged: (on) => setAdultEnabled(on),
+                  ),
+                ],
+                if (prefs.adultOn) ...[
                   _Tile(
                     icon: prefs.hasAdultPin ? Icons.lock_rounded : Icons.lock_open_rounded,
                     title: prefs.hasAdultPin ? 'Change or remove 18+ PIN' : 'Lock 18+ with a PIN',
