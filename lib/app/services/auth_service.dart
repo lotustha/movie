@@ -137,7 +137,8 @@ class AuthService extends GetxService {
           ? AccountUser.fromJson(Map<String, dynamic>.from(r.data['user']))
           : null;
       _store(token, u);
-      await refreshMe();
+      final profile = await refreshMe();
+      await _adoptGooglePhoto(account.photoUrl, profile);
       return null;
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled) return 'Sign-in cancelled.';
@@ -157,15 +158,54 @@ class AuthService extends GetxService {
       final r = await dio.get('/api/mobile/v1/me');
       final data = _data(r);
       if (data == null) return null;
+      final profile = data['profile'] is Map ? Map<String, dynamic>.from(data['profile']) : null;
       if (data['user'] is Map) {
-        final u = AccountUser.fromJson(Map<String, dynamic>.from(data['user']));
+        var u = AccountUser.fromJson(Map<String, dynamic>.from(data['user']));
+        // The profile's own avatar wins over the sign-in provider's picture.
+        final avatar = profile?['avatarUrl'] as String?;
+        if (avatar != null && avatar.isNotEmpty) {
+          u = AccountUser(id: u.id, name: u.name, email: u.email, image: avatar);
+        }
         user.value = u;
         _s.write(_kUser, u.toJson());
       }
-      return data['profile'] is Map ? Map<String, dynamic>.from(data['profile']) : null;
+      return profile;
     } catch (e) {
       debugPrint('refreshMe: $e');
       return null;
+    }
+  }
+
+  /// Signed in before photos were adopted: fetch the Google account silently
+  /// (no UI) and take its picture. Phones only; TVs have no Google sign-in.
+  Future<void> ensurePhoto(Map<String, dynamic>? profile) async {
+    if (!isSignedIn || (user.value?.image ?? '').isNotEmpty) return;
+    try {
+      await _initGoogle();
+      final account = await GoogleSignIn.instance.attemptLightweightAuthentication();
+      await _adoptGooglePhoto(account?.photoUrl, profile);
+    } catch (_) {}
+  }
+
+  /// An account without a picture takes the Google one, saved as the
+  /// profile avatar so every device (the TV included) shows it.
+  Future<void> _adoptGooglePhoto(String? photoUrl, Map<String, dynamic>? profile) async {
+    final current = user.value;
+    if (photoUrl == null || photoUrl.isEmpty || current == null) return;
+    if ((current.image ?? '').isNotEmpty) return;
+    // Google serves s96 by default; ask for a sharper square.
+    final photo = photoUrl.replaceFirst(RegExp(r'=s\d+(-c)?$'), '=s256-c');
+    user.value = AccountUser(id: current.id, name: current.name, email: current.email, image: photo);
+    _s.write(_kUser, user.value!.toJson());
+    try {
+      await dio.patch('/api/mobile/v1/me', data: {
+        'name': current.name ?? '',
+        'bio': profile?['bio'] ?? '',
+        'favoriteGenres': profile?['favoriteGenres'] ?? const [],
+        'avatarUrl': photo,
+      });
+    } catch (e) {
+      debugPrint('save avatar: $e');
     }
   }
 

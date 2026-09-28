@@ -14,6 +14,7 @@ import 'package:pull_to_refresh/pull_to_refresh.dart';
 
 import '../../../data/trending_list.dart';
 import '../../../services/config.dart';
+import '../../../services/prefs.dart';
 import '../../../model/subject_list.dart';
 import '../../../model/operating_list_model.dart';
 import '../../../model/TrendingModel.dart';
@@ -37,9 +38,15 @@ class HomeScreenController extends GetxController {
   final RxList<Subject> continueWatching = <Subject>[].obs;
   final RxList<Subject> myList = <Subject>[].obs;
 
+  // 18+ titles watched / listed: shown only inside Midnight.
+  final RxList<Subject> adultContinue = <Subject>[].obs;
+  final RxList<Subject> adultMyList = <Subject>[].obs;
+
   void refreshUserRows() {
     continueWatching.assignAll(UserData.continueSubjects());
     myList.assignAll(UserData.myList());
+    adultContinue.assignAll(UserData.continueSubjects(adult: true));
+    adultMyList.assignAll(UserData.myList(adult: true));
     _updateWatchNext();
   }
 
@@ -48,7 +55,7 @@ class HomeScreenController extends GetxController {
   Future<void> _updateWatchNext() async {
     if (kIsWeb || !Platform.isAndroid) return;
     final items = [
-      for (final e in UserData.continueEntries().take(10))
+      for (final e in UserData.continueEntries().where((e) => !UserData.isAdultEntry(e)).take(10))
         {
           'subjectId': e['subjectId'],
           'title': (e['subject'] as Map?)?['title'],
@@ -109,6 +116,9 @@ class HomeScreenController extends GetxController {
     updateSelectedSubject(trendingModel.id ?? '', trendingModel.name ?? '');
     fetchHomeFeed();
     refreshUserRows();
+    // Learn which titles are 18+ (to keep them out of the regular rows), even
+    // while the section itself is off; nothing from it is shown then.
+    fetchAdultFeed();
   }
 
   static const _kFeedCache = 'home_feed_cache';
@@ -156,6 +166,14 @@ class HomeScreenController extends GetxController {
             .where((i) => i.subject != null && i.image.url.isNotEmpty) ??
         const <BannerItem>[]);
 
+    // 18+-tagged titles stay out of the regular rows unless 18+ is on.
+    final prefs = AppPrefs.to;
+    for (final o in rows) {
+      o.subjects.removeWhere(prefs.hideSubject);
+      o.banner?.items.removeWhere((i) => prefs.hideAdult(i.subject?.genre, i.subject?.title ?? i.title));
+    }
+    banners.removeWhere((i) => prefs.hideAdult(i.subject?.genre, i.subject?.title));
+
     // Rows = rails that actually carry subjects.
     homeRows.assignAll(rows.where((o) => o.subjects.isNotEmpty).toList());
   }
@@ -184,6 +202,11 @@ class HomeScreenController extends GetxController {
                 .where((i) => i.subject != null && i.image.url.isNotEmpty) ??
             const <BannerItem>[]);
         adultRows.assignAll(rows.where((o) => o.subjects.isNotEmpty));
+        AppPrefs.to.markAdultIds([
+          for (final r in rows) ...r.subjects.map((s) => s.subjectId).whereType<String>(),
+          ...adultBanners.map((b) => b.subject?.subjectId).whereType<String>(),
+        ]);
+        refreshUserRows();
       } else {
         adultFailed.value = true;
       }
@@ -210,7 +233,11 @@ class HomeScreenController extends GetxController {
       final loaded = rankingRowLoaded[id] = false.obs;
       apiProvider.getRankingList(id: id, page: 1, perPage: 20).then((response) {
         final list = rankingSubjects(response);
-        if (list is List) row.assignAll(list.map((e) => Subject.fromJson(e)));
+        if (list is List) {
+          row.assignAll(list
+              .map((e) => Subject.fromJson(e))
+              .where((s) => !AppPrefs.to.hideSubject(s)));
+        }
       }).whenComplete(() => loaded.value = true);
       return row;
     });
@@ -295,8 +322,10 @@ class HomeScreenController extends GetxController {
 
       var data = response['data'];
       var mySubjectList = data['subjectList'] as List;
-      var newSubjects =
-      mySubjectList.map((e) => Subject.fromJson(e)).toList();
+      var newSubjects = mySubjectList
+          .map((e) => Subject.fromJson(e))
+          .where((s) => !AppPrefs.to.hideSubject(s))
+          .toList();
 
       // --- NEW: Check if this is the "Trending" list and send it to the home screen ---
       if (isRefresh && subjectIdForThisRequest == _trendingCategoryId) {
@@ -328,7 +357,9 @@ class HomeScreenController extends GetxController {
       } else {
         refreshController.loadFailed();
       }
-      Get.snackbar('Error', 'Failed to fetch data: ${e.toString()}');
+      // No snackbar: this runs at start-up, before the overlay exists, and a
+      // failed GetX snackbar leaves Get.back() broken for the whole session.
+      print('getRankingList error: $e');
     } finally {
       if (subjectIdForThisRequest == selectedSubjectId.value) {
         isLoading.value = false;

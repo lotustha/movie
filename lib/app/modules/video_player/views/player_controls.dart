@@ -79,7 +79,7 @@ class _PlayerControlsOverlayState extends State<_PlayerControlsOverlay> {
                 if (!tv) ...[
                   IconButton(
                     tooltip: 'Back',
-                    onPressed: Get.back,
+                    onPressed: controller.leave,
                     icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
                   ),
                   const SizedBox(width: 4),

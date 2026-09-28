@@ -357,6 +357,14 @@ class _TvDetailState extends State<_TvDetail> {
               semantics: 'Audio: ${_dubButtonLabel(c.currentDub)}. ${c.dubs.length} versions',
               onSelect: () => _showAudioPicker(c),
             )),
+      if (c.hasSavedProgress.value)
+        ('forget', (node, first) => _TvButton(
+              focusNode: node,
+              autofocus: first,
+              icon: Icons.playlist_remove_rounded,
+              label: 'Remove from Continue Watching',
+              onSelect: c.removeFromContinue,
+            )),
     ];
     _actionIds = [for (final s in specs) s.$1];
     return Column(
@@ -581,7 +589,7 @@ class _TvBackdrop extends StatelessWidget {
                       children: [
                         if (wide != null)
                           CachedNetworkImage(
-                            imageUrl: '$wide?x-oss-process=image/resize%2Cw_1280',
+                            imageUrl: '$wide?x-oss-process=image/resize%2Cw_1920/quality%2Cq_90',
                             fit: BoxFit.cover,
                             fadeInDuration: const Duration(milliseconds: 400),
                             errorWidget: (_, _, _) => const SizedBox.shrink(),
@@ -722,7 +730,7 @@ class _PosterCard extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: CachedNetworkImage(
-          imageUrl: '$url?x-oss-process=image/resize%2Cw_400',
+          imageUrl: '$url?x-oss-process=image/resize%2Cw_600/quality%2Cq_90',
           fit: BoxFit.cover,
           placeholder: (_, _) => const ColoredBox(color: Color(0xFF1C1C24)),
           errorWidget: (_, _, _) => const ColoredBox(color: Color(0xFF1C1C24)),

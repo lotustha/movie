@@ -140,7 +140,11 @@ class _MobileHomeState extends State<MobileHome> {
         ),
       ];
     }
-    return [for (final row in c.adultRows) _Rail(title: row.title, subjects: row.subjects)];
+    return [
+      if (c.adultContinue.isNotEmpty) _ContinueRail(subjects: c.adultContinue.toList()),
+      if (c.adultMyList.isNotEmpty) _Rail(title: 'My List', subjects: c.adultMyList.toList()),
+      for (final row in c.adultRows) _Rail(title: row.title, subjects: row.subjects),
+    ];
   }
 
   List<Widget> _buildRails() {
@@ -220,7 +224,9 @@ class _TopBar extends StatelessWidget {
           const SizedBox(height: 6),
           SizedBox(
             height: 34,
-            child: ListView(
+            // Obx: the 18+ chip appears as soon as the setting arrives (it can
+            // come from the account's sync, after this bar was built).
+            child: Obx(() => ListView(
               scrollDirection: Axis.horizontal,
               children: adult
                   ? [
@@ -267,7 +273,7 @@ class _TopBar extends StatelessWidget {
                   _Chip(label: '18+', onTap: onAdult),
                 ],
               ],
-            ),
+            )),
           ),
         ],
       ),
@@ -903,6 +909,16 @@ void _showContinueMenu(Subject s) {
               openDetail(s);
             },
           ),
+          if (AppPrefs.to.adultEnabled.value)
+            ListTile(
+              leading: const Icon(Icons.nightlight_round, color: Colors.white),
+              title: const Text('Move to Midnight (18+)', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Get.back();
+                if (s.subjectId != null) UserData.markAdult(s.subjectId!);
+                Get.find<HomeScreenController>().refreshUserRows();
+              },
+            ),
           ListTile(
             leading: const Icon(Icons.remove_circle_outline_rounded, color: Colors.white),
             title: const Text('Remove from Row', style: TextStyle(color: Colors.white)),

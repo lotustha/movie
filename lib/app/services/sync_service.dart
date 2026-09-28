@@ -175,6 +175,7 @@ class SyncService extends GetxService with WidgetsBindingObserver {
         }
       }
       final profile = await _auth.refreshMe();
+      if (Get.width < 900) await _auth.ensurePhoto(profile);
       if (profile != null && profile['showAdultContent'] is bool) {
         AppPrefs.to.applyRemoteAdult(profile['showAdultContent'] as bool);
       }

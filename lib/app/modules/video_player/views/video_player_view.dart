@@ -171,6 +171,11 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
 
           return GestureDetector(
             onTap: controller.toggleControlsVisibility,
+            // Swipe left / right across the picture to scrub (touch devices).
+            onHorizontalDragStart: (_) => controller.startDragScrub(),
+            onHorizontalDragUpdate: (d) => controller.updateDragScrub(d.delta.dx, screenWidth),
+            onHorizontalDragEnd: (_) => controller.endDragScrub(),
+            onHorizontalDragCancel: controller.endDragScrub,
             // Double-tap the left / right half to skip 10s (touch devices).
             onDoubleTapDown: (d) => _lastTapDx = d.localPosition.dx,
             onDoubleTap: () {
@@ -194,6 +199,41 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
                     ),
                   ),
                 ),
+
+                // --- Swipe-to-seek readout ---
+                Obx(() {
+                  final delta = controller.dragDeltaSec.value;
+                  final target = controller.scrubTarget.value;
+                  if (delta == null || target == null) return const SizedBox.shrink();
+                  final sign = delta < 0 ? '−' : '+';
+                  return IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('$sign${_formatPlayerTime(Duration(seconds: delta.abs()))}',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                  fontFeatures: [FontFeature.tabularFigures()])),
+                          const SizedBox(height: 2),
+                          Text(
+                              '${_formatPlayerTime(target)} / ${_formatPlayerTime(controller.videoPlayerController.value.duration)}',
+                              style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  fontFeatures: [FontFeature.tabularFigures()])),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
 
                 // --- Subtitles ---
                 Obx(() {

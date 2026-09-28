@@ -320,6 +320,19 @@ class SubjectDetailController extends GetxController {
     progressFraction.value = UserData.progressFraction(id);
   }
 
+  /// Drops the title from Continue Watching (on every signed-in device).
+  void removeFromContinue() {
+    final id = subject.value?.subjectId;
+    if (id == null) return;
+    UserData.removeContinue(id);
+    _storage.remove('progress_$id');
+    _loadProgress();
+    if (Get.isRegistered<HomeScreenController>()) {
+      Get.find<HomeScreenController>().refreshUserRows();
+    }
+    playButtonFocusNode.requestFocus();
+  }
+
   void continuePlayback() {
     if (!hasSavedProgress.value ||
         lastPlayedSeason.value == null ||

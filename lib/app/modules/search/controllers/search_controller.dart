@@ -1,3 +1,4 @@
+import '../../../services/prefs.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -9,6 +10,9 @@ import 'package:movie/app/model/subject_list.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 
 class SearchViewController extends GetxController {
+  // 18+-tagged titles only appear once 18+ is on (Settings).
+  static bool _allowed(Subject s) => !AppPrefs.to.hideSubject(s);
+
   final ApiProvider apiProvider = Get.find<ApiProvider>();
   final _storage = GetStorage();
 
@@ -66,7 +70,7 @@ class SearchViewController extends GetxController {
       final response = await apiProvider.getRankingList(id: id, page: 1, perPage: 24);
       final list = rankingSubjects(response);
       if (list is List) {
-        popularList.assignAll(list.map((e) => Subject.fromJson(e)));
+        popularList.assignAll(list.map((e) => Subject.fromJson(e)).where(_allowed));
       }
     } catch (_) {
     } finally {
@@ -189,7 +193,7 @@ class SearchViewController extends GetxController {
       // A newer search (other text or filter) started while this one was in
       // flight; it owns the results and the spinner.
       if (request != _searchRequest) return;
-      List<Subject> results = (data as List).map((e) => Subject.fromJson(e)).toList();
+      List<Subject> results = (data as List).map((e) => Subject.fromJson(e)).where(_allowed).toList();
       subjectsList.assignAll(results);
 
       if (results.isNotEmpty) {
@@ -211,7 +215,7 @@ class SearchViewController extends GetxController {
       final data = await apiProvider.searchMovies(_currentQuery,
           page: nextPage, subjectType: searchType.value);
       final List<Subject> more =
-          (data as List).map((e) => Subject.fromJson(e)).toList();
+          (data as List).map((e) => Subject.fromJson(e)).where(_allowed).toList();
 
       // MovieBox's tokenless search is server-rendered and ignores the page
       // param — every page returns the same set. Append only subjects we
@@ -263,7 +267,7 @@ class SearchViewController extends GetxController {
     final r = _storage.read<List>('lastSearchResults');
     if (q != null && r != null) {
       _currentQuery = q;
-      subjectsList.assignAll(r.map((d) => Subject.fromJson(d)).toList());
+      subjectsList.assignAll(r.map((d) => Subject.fromJson(d)).where(_allowed).toList());
     }
   }
 

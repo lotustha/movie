@@ -4,13 +4,18 @@ import 'package:crypto/crypto.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
+import '../model/subject_list.dart';
+
 /// App settings, persisted on the device and reactive for the settings UI.
 class AppPrefs extends GetxService {
   static AppPrefs get to => Get.find<AppPrefs>();
 
   final GetStorage _s = GetStorage();
 
-  static const _kAdult = 'pref_adult_enabled';
+  // v2: v1 could be switched on by the account's flag (set by another Mugen
+  // app); now only an explicit, age-confirmed opt-in in this app counts.
+  static const _kAdult = 'pref_adult_enabled_v2';
+  static const _kAdultV1 = 'pref_adult_enabled';
   static const _kAdultPin = 'pref_adult_pin';
   static const _kWifiOnly = 'pref_download_wifi_only';
   static const _kSmart = 'pref_smart_downloads';
@@ -19,7 +24,30 @@ class AppPrefs extends GetxService {
   static const kAutoplay = 'user_pref_autoplay_next';
 
   /// 18+ ("Midnight") rows are shown only after an explicit, age-confirmed opt-in.
-  late final RxBool adultEnabled = (_s.read(_kAdult) == true).obs;
+  late final RxBool adultEnabled = RxBool(_s.read<bool>(_kAdult) ??
+      // Carried over only where a PIN was set, i.e. the user opted in here.
+      (_s.read(_kAdultV1) == true && (_s.read<String>(_kAdultPin) ?? '').isNotEmpty));
+
+  /// Ids of titles seen in the 18+ tab. MovieBox doesn't tag all of them as
+  /// adult (some are just "Drama"), so membership in that tab is what marks a
+  /// title as 18+ for Continue Watching / My List / the launcher.
+  late final Set<String> _adultIds = {...(_s.read<List>('adult_ids') ?? const []).map((e) => '$e')};
+
+  void markAdultIds(Iterable<String> ids) {
+    final before = _adultIds.length;
+    _adultIds.addAll(ids);
+    if (_adultIds.length == before) return;
+    final list = _adultIds.toList();
+    _s.write('adult_ids', list.length > 3000 ? list.sublist(list.length - 3000) : list);
+  }
+
+  /// A title from the 18+ tab, flagged adult, or tagged adult by MovieBox.
+  bool isAdultJson(Map? subject) {
+    if (subject == null) return false;
+    if (subject['adult'] == true) return true;
+    if (_adultIds.contains('${subject['subjectId']}')) return true;
+    return isAdultTagged(subject['genre'] as String?, subject['title'] as String?);
+  }
 
   /// sha256 of the optional 4-digit PIN that locks the 18+ section ('' = none).
   late final RxString _adultPinHash = (_s.read<String>(_kAdultPin) ?? '').obs;
@@ -42,11 +70,23 @@ class AppPrefs extends GetxService {
     if (!on) adultUnlocked.value = false;
   }
 
-  /// Applies the account's setting from the server without re-uploading it.
+  /// The account's setting from the server can only turn 18+ OFF here;
+  /// turning it on takes the age confirmation on this device.
   void applyRemoteAdult(bool on) {
-    if (adultEnabled.value == on) return;
-    setAdultEnabled(on);
+    if (!on && adultEnabled.value) setAdultEnabled(false);
   }
+
+  /// Titles MovieBox tags as adult. Kept out of the regular rows, search and
+  /// the launcher channel unless 18+ is on.
+  static final RegExp _adultTag = RegExp(r'(?<!young )adult|erotic|hentai|porn|18\+', caseSensitive: false);
+  static bool isAdultTagged(String? genre, String? title) =>
+      _adultTag.hasMatch(genre ?? '') || (title ?? '').contains('18+');
+
+  bool hideAdult(String? genre, String? title) => !adultEnabled.value && isAdultTagged(genre, title);
+
+  /// Keep [s] out of the regular rows / search: 18+ and 18+ is off.
+  bool hideSubject(Subject s) =>
+      !adultEnabled.value && (_adultIds.contains(s.subjectId) || isAdultTagged(s.genre, s.title));
 
   void setAdultPin(String? pin) {
     final hash = (pin == null || pin.isEmpty) ? '' : _hash(pin);

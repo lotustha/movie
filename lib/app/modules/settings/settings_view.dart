@@ -61,7 +61,7 @@ class SettingsView extends StatelessWidget {
                   _Tile(
                     autofocus: true,
                     icon: Icons.sync_rounded,
-                    title: 'Sync now',
+                    title: 'Sync',
                     subtitle: _syncedLabel(),
                     trailing: SyncService.to.syncing.value
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
@@ -175,7 +175,10 @@ class SettingsView extends StatelessWidget {
 
   static String _syncedLabel() {
     final t = SyncService.to.lastSynced.value;
-    return t == null ? 'Not synced yet on this device' : 'Last synced ${DateFormat('h:mm a').format(t)}';
+    // Sync runs by itself (on open, on return, a few seconds after a change);
+    // the row forces one now.
+    final when = t == null ? 'not yet on this device' : 'last at ${DateFormat('h:mm a').format(t)}';
+    return 'Automatic — $when. Tap to sync now.';
   }
 }
 

@@ -119,12 +119,11 @@ class _MyAppState extends State<MyApp> {
       AppPages.pendingDetailArgs = args;
       return;
     }
-    // Opening a second title from the launcher replaces the first.
-    if (Get.currentRoute == Routes.SUBJECT_DETAIL) {
-      Get.offNamed(Routes.SUBJECT_DETAIL, arguments: args, preventDuplicates: false);
-    } else {
-      Get.toNamed(Routes.SUBJECT_DETAIL, arguments: args, preventDuplicates: false);
-    }
+    // A launcher link starts over from Home: whatever was open (a detail
+    // page, the player) is closed first, so nothing keeps playing underneath
+    // and the new title is the only one on the stack.
+    Get.until((route) => route.settings.name == Routes.HOME_SCREEN || route.isFirst);
+    Get.toNamed(Routes.SUBJECT_DETAIL, arguments: args, preventDuplicates: false);
   }
 
   @override

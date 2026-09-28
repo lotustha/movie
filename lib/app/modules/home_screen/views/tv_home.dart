@@ -240,6 +240,13 @@ class _TvHomeState extends State<TvHome> {
       if (c.adultRows.isEmpty && !c.isAdultLoading.value && !c.adultFailed.value) {
         WidgetsBinding.instance.addPostFrameCallback((_) => c.fetchAdultFeed());
       }
+      if (c.adultContinue.isNotEmpty) {
+        rails.add(_RailSpec('🌙 Continue Watching',
+            subjects: c.adultContinue.toList(), showProgress: true));
+      }
+      if (c.adultMyList.isNotEmpty) {
+        rails.add(_RailSpec('🌙 My List', subjects: c.adultMyList.toList()));
+      }
       for (final row in c.adultRows) {
         rails.add(_RailSpec('🌙 ${row.title}', subjects: row.subjects));
       }
@@ -528,7 +535,7 @@ class _BillboardSlide extends StatelessWidget {
             duration: const Duration(milliseconds: 450),
             child: CachedNetworkImage(
               key: ValueKey(item.image.url),
-              imageUrl: '${item.image.url}?x-oss-process=image/resize%2Cw_1000',
+              imageUrl: '${item.image.url}?x-oss-process=image/resize%2Cw_1920/quality%2Cq_90',
               fit: BoxFit.cover,
               fadeInDuration: const Duration(milliseconds: 300),
               errorWidget: (_, _, _) => const SizedBox.shrink(),
@@ -997,7 +1004,7 @@ class _Poster extends StatelessWidget {
                 children: [
                   if (url != null && url.isNotEmpty)
                     CachedNetworkImage(
-                      imageUrl: '$url?x-oss-process=image/resize%2Cw_240',
+                      imageUrl: '$url?x-oss-process=image/resize%2Cw_400/quality%2Cq_90',
                       fit: BoxFit.cover,
                       placeholder: (_, _) => const ColoredBox(color: Color(0xFF1C1C24)),
                       errorWidget: (_, _, _) => _PosterFallback(title: subject.title),

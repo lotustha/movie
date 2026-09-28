@@ -197,7 +197,18 @@ class CustomVideoPlayerController extends GetxController {
       resetControlsTimer();
       return;
     }
-    Get.back();
+    leave();
+  }
+
+  /// Closes the player. Navigator directly: Get.back() first tries to close
+  /// a GetX snackbar, and one that failed to show makes it throw and stay.
+  void leave() {
+    final nav = Get.key.currentState;
+    if (nav != null && nav.canPop()) {
+      nav.pop();
+    } else {
+      Get.back();
+    }
   }
 
   Future<void> _initializePlayerWithFallback({
@@ -590,6 +601,45 @@ class CustomVideoPlayerController extends GetxController {
     if (t == null) return;
     scrubTarget.value = null;
     if (isPlayerReady.value) videoPlayerController.seekTo(t);
+  }
+
+  // --- Touch: horizontal swipe on the picture scrubs ---
+
+  Duration? _dragFrom;
+  double _dragDx = 0;
+  /// Seconds the current swipe moves (for the centre readout); null = no swipe.
+  final RxnInt dragDeltaSec = RxnInt();
+
+  void startDragScrub() {
+    if (!isPlayerReady.value) return;
+    _dragFrom = videoPlayerController.value.position;
+    _dragDx = 0;
+    dragDeltaSec.value = 0;
+    showControls.value = true;
+    _controlsVisibilityTimer?.cancel();
+  }
+
+  /// A full-width swipe covers 2 minutes, or a fifth of long titles.
+  void updateDragScrub(double dx, double width) {
+    final from = _dragFrom;
+    final dur = videoPlayerController.value.duration;
+    if (from == null || dur <= Duration.zero || width <= 0) return;
+    _dragDx += dx;
+    final spanSec = (dur.inSeconds ~/ 5).clamp(120, 1200).clamp(0, dur.inSeconds);
+    var t = from + Duration(milliseconds: (spanSec * 1000 * _dragDx / width).round());
+    if (t < Duration.zero) t = Duration.zero;
+    final end = dur - const Duration(seconds: 1);
+    if (t > end) t = end;
+    scrubTarget.value = t;
+    dragDeltaSec.value = (t - from).inSeconds;
+  }
+
+  void endDragScrub() {
+    if (_dragFrom == null) return;
+    _dragFrom = null;
+    dragDeltaSec.value = null;
+    commitScrub();
+    resetControlsTimer();
   }
 
   void forward10Seconds() {

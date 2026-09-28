@@ -36,7 +36,14 @@ Future<void> setAdultEnabled(bool on) async {
   SyncService.to.pushAdultSetting(on);
   if (Get.isRegistered<HomeScreenController>()) {
     final c = Get.find<HomeScreenController>();
-    if (prefs.adultVisible) c.fetchAdultFeed();
+    if (prefs.adultVisible) {
+      c.fetchAdultFeed();
+    } else {
+      // Off: drop the Midnight rows and re-filter the regular feed.
+      c.adultRows.clear();
+      c.adultBanners.clear();
+      c.fetchHomeFeed();
+    }
   }
 }
 

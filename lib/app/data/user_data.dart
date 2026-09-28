@@ -1,6 +1,8 @@
+import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
 import '../model/subject_list.dart';
+import '../services/prefs.dart';
 
 /// A local change the account sync should upload.
 class UserDataChange {
@@ -27,12 +29,15 @@ class UserData {
     const keep = [
       'subjectId', 'subjectType', 'title', 'description', 'releaseDate', 'duration',
       'genre', 'cover', 'countryName', 'imdbRatingValue', 'detailPath', 'subtitles',
-      'hasResource', 'corner',
+      'hasResource', 'corner', 'adult',
     ];
     final out = <String, dynamic>{
       for (final k in keep)
         if (subject[k] != null) k: subject[k],
     };
+    // Remember 18+ titles as such, so every device keeps them out of the
+    // regular rows even before it has loaded the 18+ tab.
+    if (Get.isRegistered<AppPrefs>() && AppPrefs.to.isAdultJson(out)) out['adult'] = true;
     final d = out['description'];
     if (d is String && d.length > 400) out['description'] = '${d.substring(0, 397)}...';
     return out;
@@ -99,6 +104,27 @@ class UserData {
     onChange?.call(UserDataChange('progress', 'delete', id));
   }
 
+  /// Moves a title into the 18+ section: its entries are flagged (and synced)
+  /// so no device shows it in the regular rows again.
+  static void markAdult(String id) {
+    if (Get.isRegistered<AppPrefs>()) AppPrefs.to.markAdultIds([id]);
+    final cw = _rawContinue();
+    for (final e in cw) {
+      if (e['subjectId'] != id || e['subject'] is! Map) continue;
+      (e['subject'] as Map)['adult'] = true;
+      e['updatedAt'] = DateTime.now().millisecondsSinceEpoch;
+      onChange?.call(UserDataChange('progress', 'put', id, _progressPayload(e)));
+    }
+    _s.write(_kContinue, cw);
+    final ml = _rawMyList();
+    for (final s in ml) {
+      if (s['subjectId'] != id) continue;
+      s['adult'] = true;
+      onChange?.call(UserDataChange('list', 'put', id, {'subjectId': id, 'subject': s}));
+    }
+    _s.write(_kMyList, ml);
+  }
+
   /// Continue Watching entries with their saved season/episode/position, most
   /// recent first and one per title — for the TV launcher's Play Next row.
   static List<Map<String, dynamic>> continueEntries() {
@@ -110,15 +136,22 @@ class UserData {
   }
 
   /// Continue Watching, most recent first, one per title (older saved
-  /// duplicates from language versions are skipped).
-  static List<Subject> continueSubjects() {
+  /// duplicates from language versions are skipped). [adult] picks the 18+
+  /// titles (shown only in Midnight) or everything else.
+  static List<Subject> continueSubjects({bool adult = false}) {
     final seen = <String>{};
     return [
       for (final e in _rawContinue())
-        if (seen.add(_titleKey(e['subject'])))
+        if (_isAdult(e['subject']) == adult && seen.add(_titleKey(e['subject'])))
           Subject.fromJson(Map<String, dynamic>.from(e['subject'] as Map)),
     ];
   }
+
+  static bool _isAdult(dynamic subject) =>
+      Get.isRegistered<AppPrefs>() && subject is Map && AppPrefs.to.isAdultJson(subject);
+
+  /// Whether a saved entry is 18+ (kept off the launcher's Play Next row).
+  static bool isAdultEntry(Map<String, dynamic> e) => _isAdult(e['subject']);
 
   /// Same show across its language versions: "Tavvai [Hindi]" and "Tavvai"
   /// (and dubs that keep the exact title) share a key. Title + year, so a
@@ -166,8 +199,10 @@ class UserData {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
-  static List<Subject> myList() =>
-      _rawMyList().map((e) => Subject.fromJson(e)).toList();
+  static List<Subject> myList({bool adult = false}) => [
+        for (final e in _rawMyList())
+          if (_isAdult(e) == adult) Subject.fromJson(e),
+      ];
 
   static bool inMyList(String? id) =>
       id != null && _rawMyList().any((e) => e['subjectId'] == id);
