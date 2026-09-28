@@ -14,6 +14,11 @@ import '../../controllers/home_screen_controller.dart';
 const Color kCard = Color(0xFF1C1C24);
 const Color kInk = Color(0xFF111114);
 
+/// Asks the phone shell to switch tab (e.g. a top-bar search icon → Search).
+final ValueNotifier<int?> mobileTabRequest = ValueNotifier(null);
+const int kSearchTab = 2;
+void openSearchTab() => mobileTabRequest.value = kSearchTab;
+
 /// Bumped to stop inline trailers (tab switch, navigation away).
 final ValueNotifier<int> inlineMediaStop = ValueNotifier(0);
 void stopInlineMedia() => inlineMediaStop.value++;
@@ -424,9 +429,11 @@ class _SheetAction extends StatelessWidget {
 
 /// Row header used by every rail on the phone.
 class RailTitle extends StatelessWidget {
-  const RailTitle(this.title, {super.key, this.onMore});
+  const RailTitle(this.title, {super.key, this.onMore, this.action});
   final String title;
   final VoidCallback? onMore;
+  /// Optional trailing text button (e.g. "Clear").
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -436,7 +443,9 @@ class RailTitle extends StatelessWidget {
         style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700));
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-      child: onMore == null
+      child: action != null
+          ? Row(children: [Expanded(child: text), action!])
+          : onMore == null
           ? text
           : InkWell(
               onTap: onMore,

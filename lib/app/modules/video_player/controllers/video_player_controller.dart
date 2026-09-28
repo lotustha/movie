@@ -11,7 +11,9 @@ import 'package:movie/app/data/api_provider.dart';
 import 'package:movie/app/data/user_data.dart';
 import 'package:movie/app/modules/home_screen/controllers/home_screen_controller.dart';
 import 'package:movie/app/model/subject_list.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import 'package:video_player/video_player.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart'; // Required for Full Screen
 
@@ -603,6 +605,59 @@ class CustomVideoPlayerController extends GetxController {
     if (isPlayerReady.value) videoPlayerController.seekTo(t);
   }
 
+  // --- Touch: vertical swipe — left half brightness, right half volume ---
+
+  /// 'brightness' | 'volume' while a vertical swipe is in progress.
+  final RxnString levelKind = RxnString();
+  final RxDouble level = 0.0.obs;
+  double _levelFrom = 0;
+  double _levelDy = 0;
+  Timer? _levelHide;
+  bool _brightnessChanged = false;
+
+  static bool get _touchPlatform => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
+  Future<void> startLevelDrag({required bool rightSide}) async {
+    if (!_touchPlatform) return;
+    _levelHide?.cancel();
+    _levelDy = 0;
+    final kind = rightSide ? 'volume' : 'brightness';
+    try {
+      if (kind == 'volume') {
+        VolumeController.instance.showSystemUI = false;
+        _levelFrom = await VolumeController.instance.getVolume();
+      } else {
+        _levelFrom = await ScreenBrightness.instance.application;
+      }
+    } catch (_) {
+      _levelFrom = 0.5;
+    }
+    level.value = _levelFrom;
+    levelKind.value = kind;
+  }
+
+  /// Up raises, down lowers; a swipe of ~80% of the height covers 0→100%.
+  void updateLevelDrag(double dy, double height) {
+    final kind = levelKind.value;
+    if (kind == null || height <= 0) return;
+    _levelDy += dy;
+    final v = (_levelFrom - _levelDy / (height * 0.8)).clamp(0.0, 1.0);
+    level.value = v;
+    try {
+      if (kind == 'volume') {
+        VolumeController.instance.setVolume(v);
+      } else {
+        _brightnessChanged = true;
+        ScreenBrightness.instance.setApplicationScreenBrightness(v);
+      }
+    } catch (_) {}
+  }
+
+  void endLevelDrag() {
+    _levelHide?.cancel();
+    _levelHide = Timer(const Duration(milliseconds: 700), () => levelKind.value = null);
+  }
+
   // --- Touch: horizontal swipe on the picture scrubs ---
 
   Duration? _dragFrom;
@@ -964,6 +1019,11 @@ class CustomVideoPlayerController extends GetxController {
   void onClose() {
     _upNextTimer?.cancel();
     _progressSaveTimer?.cancel();
+    _levelHide?.cancel();
+    // The player's brightness is its own; the rest of the app goes back to normal.
+    if (_brightnessChanged) {
+      ScreenBrightness.instance.resetApplicationScreenBrightness().catchError((_) {});
+    }
     _saveProgress();
     // Refresh the home "Continue Watching" row on the way out.
     if (Get.isRegistered<HomeScreenController>()) {

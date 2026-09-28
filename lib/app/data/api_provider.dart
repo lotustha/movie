@@ -103,6 +103,43 @@ class ApiProvider extends GetConnect {
     }
   }
 
+  /// One page of the site's browse filter (the /web/film and /web/tv-series
+  /// pages): raw MovieBox subjects plus whether more pages exist.
+  Future<({List<Subject> items, bool hasMore})> browse({
+    required String type, // 'movie' | 'tv'
+    String? genre,
+    String? country,
+    String? year,
+    String? classify,
+    String? sort,
+    int page = 1,
+    int perPage = 24,
+  }) async {
+    try {
+      final response = await _dio.get('filter', queryParameters: {
+        'type': type,
+        if (genre != null) 'genre': genre,
+        if (country != null) 'country': country,
+        if (year != null) 'year': year,
+        if (classify != null) 'classify': classify,
+        if (sort != null) 'sort': sort,
+        'page': page,
+        'perPage': perPage,
+      });
+      final data = response.data;
+      if (response.statusCode == 200 && data is Map) {
+        final items = [
+          for (final e in (data['items'] as List? ?? const []))
+            Subject.fromJson(Map<String, dynamic>.from(e as Map)),
+        ];
+        return (items: items, hasMore: (data['pager'] as Map?)?['hasMore'] == true);
+      }
+    } catch (error) {
+      print('browse error: $error');
+    }
+    return (items: const <Subject>[], hasMore: false);
+  }
+
   /// A site tab's rows (`operatingList`), e.g. the 18+ tab (9).
   Future fetchTab(int tabId) async {
     try {

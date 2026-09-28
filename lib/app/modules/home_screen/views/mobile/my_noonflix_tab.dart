@@ -39,7 +39,7 @@ class MyNoonFlixTab extends StatelessWidget {
                   ),
                   IconButton(
                     tooltip: 'Search',
-                    onPressed: () => Get.toNamed('/search'),
+                    onPressed: openSearchTab,
                     icon: const Icon(Icons.search_rounded, color: Colors.white, size: 27),
                   ),
                   IconButton(
@@ -54,7 +54,16 @@ class MyNoonFlixTab extends StatelessWidget {
           const SliverToBoxAdapter(child: _ProfileHeader()),
           if (DownloadService.supported) const SliverToBoxAdapter(child: _DownloadsEntry()),
           if (continuing.isNotEmpty) ...[
-            SliverToBoxAdapter(child: RailTitle('Continue Watching (${continuing.length})')),
+            SliverToBoxAdapter(
+              child: RailTitle(
+                'Continue Watching (${continuing.length})',
+                action: TextButton(
+                  onPressed: () => clearContinueWatching(),
+                  style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                  child: const Text('Clear'),
+                ),
+              ),
+            ),
             SliverToBoxAdapter(
               child: SizedBox(
                 height: 162 + 40,

@@ -77,7 +77,7 @@ class _NewHotTabState extends State<NewHotTab> {
                 tooltip: 'Search',
                 onPressed: () {
                   stopInlineMedia();
-                  Get.toNamed('/search');
+                  openSearchTab();
                 },
                 icon: const Icon(Icons.search_rounded, color: Colors.white, size: 27),
               ),

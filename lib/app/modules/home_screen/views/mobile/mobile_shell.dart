@@ -10,6 +10,7 @@ import 'mobile_home.dart';
 import 'mobile_common.dart';
 import 'my_noonflix_tab.dart';
 import 'new_hot_tab.dart';
+import 'search_tab.dart';
 
 /// Phone layout: Netflix-style bottom navigation over three tabs. Tabs are
 /// kept alive in an IndexedStack so switching back keeps each scroll position.
@@ -24,6 +25,25 @@ class MobileShell extends StatefulWidget {
 class _MobileShellState extends State<MobileShell> {
   int _tab = 0;
   final _visited = <int>{0};
+
+  @override
+  void initState() {
+    super.initState();
+    mobileTabRequest.addListener(_onTabRequest);
+  }
+
+  @override
+  void dispose() {
+    mobileTabRequest.removeListener(_onTabRequest);
+    super.dispose();
+  }
+
+  void _onTabRequest() {
+    final t = mobileTabRequest.value;
+    if (t == null) return;
+    mobileTabRequest.value = null;
+    _select(t);
+  }
 
   void _select(int i) => setState(() {
         if (i != _tab) stopInlineMedia();
@@ -47,7 +67,8 @@ class _MobileShellState extends State<MobileShell> {
             const MobileHome(),
             // Built on first visit so their requests don't compete with Home's.
             _visited.contains(1) ? const NewHotTab() : const SizedBox.shrink(),
-            _visited.contains(2) ? const MyNoonFlixTab() : const SizedBox.shrink(),
+            _visited.contains(2) ? const SearchTab() : const SizedBox.shrink(),
+            _visited.contains(3) ? const MyNoonFlixTab() : const SizedBox.shrink(),
           ],
         ),
         bottomNavigationBar: _NetflixTabBar(index: _tab, onSelect: _select),
@@ -90,10 +111,16 @@ class _NetflixTabBar extends StatelessWidget {
                 icon: Icon(index == 1 ? Icons.smart_display_rounded : Icons.smart_display_outlined),
               ),
               _TabItem(
-                label: 'My NoonFlix',
+                label: 'Search',
                 selected: index == 2,
                 onTap: () => onSelect(2),
-                icon: _ProfileIcon(selected: index == 2),
+                icon: Icon(index == 2 ? Icons.manage_search_rounded : Icons.search_rounded),
+              ),
+              _TabItem(
+                label: 'My NoonFlix',
+                selected: index == 3,
+                onTap: () => onSelect(3),
+                icon: _ProfileIcon(selected: index == 3),
               ),
             ],
           ),

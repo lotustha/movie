@@ -216,7 +216,7 @@ class _TopBar extends StatelessWidget {
               const Spacer(),
               IconButton(
                 tooltip: 'Search',
-                onPressed: () => Get.toNamed('/search'),
+                onPressed: openSearchTab,
                 icon: const Icon(Icons.search_rounded, color: Colors.white, size: 27),
               ),
             ],

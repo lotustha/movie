@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../app_theme.dart';
+import '../../data/user_data.dart';
 import '../../services/auth_service.dart';
 import '../../services/download_service.dart';
 import '../../services/prefs.dart';
@@ -86,6 +87,22 @@ class SettingsView extends StatelessWidget {
                     },
                   ),
                 ],
+                const _Header('Viewing activity'),
+                _Tile(
+                  icon: Icons.history_toggle_off_rounded,
+                  title: 'Clear Continue Watching',
+                  subtitle: signedIn
+                      ? 'Removes every title from Continue Watching on all your devices.'
+                      : 'Removes every title from Continue Watching on this device.',
+                  onTap: () => clearContinueWatching(),
+                ),
+                if (prefs.adultEnabled.value)
+                  _Tile(
+                    icon: Icons.nightlight_round,
+                    title: 'Clear Midnight Continue Watching',
+                    subtitle: 'Removes the 18+ titles you started.',
+                    onTap: () => clearContinueWatching(adult: true),
+                  ),
                 const _Header('Playback'),
                 _SwitchTile(
                   icon: Icons.skip_next_rounded,
@@ -197,6 +214,19 @@ Future<void> signIn(BuildContext context) async {
     Get.snackbar('Signed in', 'Welcome, ${AuthService.to.user.value?.displayName ?? ''}',
         snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
   }
+}
+
+/// Asks, then empties Continue Watching (regular or the 18+ one).
+Future<void> clearContinueWatching({bool adult = false}) async {
+  final ok = await _confirm(
+    adult ? 'Clear Midnight Continue Watching?' : 'Clear Continue Watching?',
+    'Titles you started will leave the row and start from the beginning next time.',
+  );
+  if (!ok) return;
+  final n = UserData.clearContinue(adult: adult);
+  if (Get.isRegistered<HomeScreenController>()) Get.find<HomeScreenController>().refreshUserRows();
+  Get.snackbar('Continue Watching', n == 0 ? 'Nothing to clear.' : 'Cleared $n title${n == 1 ? '' : 's'}.',
+      snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
 }
 
 Future<void> _pickQuality(AppPrefs prefs) async {

@@ -176,6 +176,13 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
             onHorizontalDragUpdate: (d) => controller.updateDragScrub(d.delta.dx, screenWidth),
             onHorizontalDragEnd: (_) => controller.endDragScrub(),
             onHorizontalDragCancel: controller.endDragScrub,
+            // Swipe up / down: left half brightness, right half volume.
+            onVerticalDragStart: (d) =>
+                controller.startLevelDrag(rightSide: d.localPosition.dx > screenWidth / 2),
+            onVerticalDragUpdate: (d) =>
+                controller.updateLevelDrag(d.delta.dy, MediaQuery.sizeOf(context).height),
+            onVerticalDragEnd: (_) => controller.endLevelDrag(),
+            onVerticalDragCancel: controller.endLevelDrag,
             // Double-tap the left / right half to skip 10s (touch devices).
             onDoubleTapDown: (d) => _lastTapDx = d.localPosition.dx,
             onDoubleTap: () {
@@ -200,13 +207,67 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
                   ),
                 ),
 
+                // --- Brightness / volume level ---
+                Obx(() {
+                  final kind = controller.levelKind.value;
+                  if (kind == null) return const SizedBox.shrink();
+                  final v = controller.level.value;
+                  final volume = kind == 'volume';
+                  final icon = volume
+                      ? (v == 0 ? Icons.volume_off_rounded : v < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded)
+                      : (v < 0.34 ? Icons.brightness_low_rounded : v < 0.67 ? Icons.brightness_medium_rounded : Icons.brightness_high_rounded);
+                  return Align(
+                    // On the side that was swiped, clear of the centre controls.
+                    alignment: Alignment(volume ? 0.82 : -0.82, 0),
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 54,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(27),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(icon, color: Colors.white, size: 24),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 130,
+                              width: 5,
+                              child: RotatedBox(
+                                quarterTurns: 3,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: LinearProgressIndicator(
+                                    value: v,
+                                    backgroundColor: Colors.white24,
+                                    valueColor: const AlwaysStoppedAnimation(Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text('${(v * 100).round()}',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+
                 // --- Swipe-to-seek readout ---
                 Obx(() {
                   final delta = controller.dragDeltaSec.value;
                   final target = controller.scrubTarget.value;
                   if (delta == null || target == null) return const SizedBox.shrink();
                   final sign = delta < 0 ? '−' : '+';
-                  return IgnorePointer(
+                  // Above the centre controls, so it never covers play/pause.
+                  return Align(
+                    alignment: const Alignment(0, -0.55),
+                    child: IgnorePointer(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                       decoration: BoxDecoration(
@@ -232,7 +293,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> {
                         ],
                       ),
                     ),
-                  );
+                  ));
                 }),
 
                 // --- Subtitles ---

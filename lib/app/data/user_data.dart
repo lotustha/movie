@@ -125,6 +125,20 @@ class UserData {
     _s.write(_kMyList, ml);
   }
 
+  /// Empties Continue Watching (the 18+ entries only with [adult], else the
+  /// regular ones), on every signed-in device. Resume points go too.
+  static int clearContinue({bool adult = false}) {
+    final all = _rawContinue();
+    final gone = all.where((e) => _isAdult(e['subject']) == adult).toList();
+    _s.write(_kContinue, all.where((e) => !gone.contains(e)).toList());
+    for (final e in gone) {
+      final id = '${e['subjectId']}';
+      _s.remove('progress_$id');
+      onChange?.call(UserDataChange('progress', 'delete', id));
+    }
+    return gone.length;
+  }
+
   /// Continue Watching entries with their saved season/episode/position, most
   /// recent first and one per title — for the TV launcher's Play Next row.
   static List<Map<String, dynamic>> continueEntries() {
