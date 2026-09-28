@@ -5,8 +5,10 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   connectivity_plus
+  screen_brightness_windows
   screen_retriever_windows
   video_player_win
+  volume_controller
   window_manager
 )
 
