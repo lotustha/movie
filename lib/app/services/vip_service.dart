@@ -11,7 +11,8 @@ import 'config.dart';
 import 'device.dart';
 
 /// VIP time: watching one rewarded ad gives [minutesPerAd] minutes of
-/// playback. The time lives on the account (ani-nexus `ad_unlocks`, granted
+/// playback. The time lives on the account (ani-nexus `movie_ad_unlocks`,
+/// NoonFlix's own — separate from the other apps' — granted
 /// by AdMob's signed server callback), so an ad watched on the phone unlocks
 /// the TV too; the phone also starts the clock locally the moment the reward
 /// is earned, so it never waits on the callback.
@@ -43,7 +44,12 @@ class VipService extends GetxService {
   /// AdMob can't serve on Android TV; TVs unlock from a phone.
   static bool get adsSupported => !kIsWeb && Platform.isAndroid && !Device.isTv;
 
-  static const _testRewardedUnit = 'ca-app-pub-3940256099942544/5224354917';
+  /// AdMob test-device ids (MD5 of the Android ID, upper-case hex).
+  static const _testDevices = [
+    '99689748AF642F77163192E2DBF77246', // developer's Galaxy S25 Ultra
+  ];
+
+  static const _testRewardedUnit ='ca-app-pub-3940256099942544/5224354917';
   static String get _rewardedUnit => kReleaseMode ? AppConfig.rewardedAdUnit : _testRewardedUnit;
 
   @override
@@ -51,7 +57,12 @@ class VipService extends GetxService {
     super.onInit();
     _tick = Timer.periodic(const Duration(seconds: 30), (_) => now.value = DateTime.now());
     ever<String?>(AuthService.to.tokenRx, (_) => refresh());
-    if (adsSupported) MobileAds.instance.initialize();
+    if (adsSupported) {
+      // The developer's own phones get test ads from the real unit: watching
+      // your own live ads counts as invalid traffic on the AdMob account.
+      MobileAds.instance.updateRequestConfiguration(RequestConfiguration(testDeviceIds: _testDevices));
+      MobileAds.instance.initialize();
+    }
     refresh();
   }
 
@@ -175,7 +186,8 @@ class VipService extends GetxService {
   Future<void> _confirmOnServer() async {
     if (!AuthService.to.isSignedIn) return;
     try {
-      await AuthService.to.dio.post('/api/mobile/v1/unlock/ad-reward', data: const {});
+      await AuthService.to.dio
+          .post('/api/mobile/v1/unlock/ad-reward', queryParameters: {'scope': 'movies'}, data: const {});
     } catch (_) {}
     for (final wait in const [3, 8, 20]) {
       await Future.delayed(Duration(seconds: wait));

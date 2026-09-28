@@ -33,6 +33,8 @@ const double _sidePad = 28;
 const double _headerOpen = 300; // billboard focused
 const double _headerClosed = 168; // focus in the rails: compact info header
 const Duration _move = Duration(milliseconds: 260);
+// Share of the screen width the billboard art covers (right-aligned).
+const double _artFraction = 0.70;
 
 /// Android TV home: a featured billboard over horizontal rails.
 ///
@@ -524,32 +526,51 @@ class _BillboardSlide extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Banner art is 16:9: give it exactly that box at the billboard's
-        // full height, anchored right, so the whole picture (title logos
-        // included) shows instead of being cropped by BoxFit.cover.
+        // Every banner fills the same box — the right 70% of the screen at the
+        // billboard's full height — cropped to it (a little off the top and
+        // bottom of the 16:9 art, biased up to keep faces and title logos),
+        // so no two slides start, end or sit differently.
         Positioned(
           top: 0,
           right: 0,
           height: _headerOpen,
-          width: _headerOpen * 16 / 9,
+          width: MediaQuery.sizeOf(context).width * _artFraction,
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 450),
             child: CachedNetworkImage(
               key: ValueKey(item.image.url),
               imageUrl: '${item.image.url}?x-oss-process=image/resize%2Cw_1920/quality%2Cq_90',
+              // Fill the whole box: AnimatedSwitcher lays children out loose,
+              // which left narrower art short of the right edge.
+              width: double.infinity,
+              height: double.infinity,
               fit: BoxFit.cover,
+              alignment: const Alignment(0.2, -0.35),
               fadeInDuration: const Duration(milliseconds: 300),
               errorWidget: (_, _, _) => const SizedBox.shrink(),
             ),
           ),
         ),
-        // Feather the art's left edge into the page (the art starts at ~44%
-        // of the width) and keep the title side solid for legibility.
+        // Feather the art into the page. Solid up to where the art begins
+        // (1 - _artFraction), so its left edge is never visible, then a long,
+        // smooth fade; the title side stays dark for legibility.
         DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [bg, bg.withValues(alpha: 0.8), bg.withValues(alpha: 0)],
-              stops: const [0.40, 0.50, 0.68],
+              colors: [bg, bg, bg.withValues(alpha: 0.75), bg.withValues(alpha: 0.25), bg.withValues(alpha: 0)],
+              stops: const [0.0, 1 - _artFraction, 0.42, 0.56, 0.70],
+            ),
+          ),
+        ),
+        // A light shade under the top bar so the clock and icons stay
+        // readable over bright art.
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [bg.withValues(alpha: 0.55), bg.withValues(alpha: 0)],
+              stops: const [0.0, 0.3],
             ),
           ),
         ),
@@ -652,12 +673,12 @@ class _BillboardEmpty extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            const Positioned(
+            Positioned(
               top: 0,
               right: 0,
               height: _headerOpen,
-              width: _headerOpen * 16 / 9,
-              child: Bone(radius: 0),
+              width: MediaQuery.sizeOf(context).width * _artFraction,
+              child: const Bone(radius: 0),
             ),
             Positioned(
               left: _sidePad,
