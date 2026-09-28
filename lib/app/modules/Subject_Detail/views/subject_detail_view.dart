@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import '../../../services/download_service.dart';
+import '../../../services/prefs.dart';
 import '../../downloads/downloads_view.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -1358,6 +1359,8 @@ class _MobileEpisodes extends GetView<SubjectDetailController> {
               if (seasons.length <= 1)
                 Text('Season $season',
                     style: const TextStyle(color: Colors.white54, fontSize: 13)),
+              const Spacer(),
+              if (episodes.isNotEmpty) const _EpisodeLayoutToggle(),
             ],
           ),
           if (DownloadService.supported && episodes.isNotEmpty)
@@ -1398,6 +1401,9 @@ class _MobileEpisodes extends GetView<SubjectDetailController> {
               child: Text('No episodes listed for this season yet.',
                   style: TextStyle(color: Colors.white38, fontSize: 13)),
             ),
+          if (AppPrefs.to.episodeGrid.value && episodes.isNotEmpty)
+            _EpisodeGrid(season: season, episodes: episodes),
+          if (!AppPrefs.to.episodeGrid.value)
           for (final ep in episodes)
             Builder(builder: (context) {
               final saved = controller.hasSavedProgress.value &&
@@ -1454,6 +1460,234 @@ class _MobileEpisodes extends GetView<SubjectDetailController> {
       );
     });
   }
+}
+
+/// List ⇄ grid for the episodes (remembered for every title).
+class _EpisodeLayoutToggle extends StatelessWidget {
+  const _EpisodeLayoutToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = AppPrefs.to;
+    Widget option(bool grid, IconData icon, String label) {
+      final on = prefs.episodeGrid.value == grid;
+      return Semantics(
+        button: true,
+        selected: on,
+        label: label,
+        excludeSemantics: true,
+        child: InkWell(
+          onTap: () => prefs.setEpisodeGrid(grid),
+          borderRadius: BorderRadius.circular(8),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 44,
+            height: 36,
+            decoration: BoxDecoration(
+              color: on ? Colors.white.withValues(alpha: 0.16) : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 22, color: on ? Colors.white : Colors.white54),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          option(false, Icons.view_list_rounded, 'Show episodes as a list'),
+          option(true, Icons.grid_view_rounded, 'Show episodes as a grid'),
+        ],
+      ),
+    );
+  }
+}
+
+/// Episodes as numbered tiles: tap plays; long-press for download options.
+/// The saved episode shows its progress; downloads show their state.
+class _EpisodeGrid extends GetView<SubjectDetailController> {
+  const _EpisodeGrid({required this.season, required this.episodes});
+  final int season;
+  final List<int> episodes;
+
+  @override
+  Widget build(BuildContext context) {
+    final columns = MediaQuery.sizeOf(context).width >= 600 ? 8 : 5;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: columns,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 1,
+            children: [for (final ep in episodes) _GridEpisodeTile(season: season, episode: ep)],
+          ),
+          if (DownloadService.supported)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Press and hold an episode to download it.',
+                  style: TextStyle(color: Colors.white38, fontSize: 12)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GridEpisodeTile extends GetView<SubjectDetailController> {
+  const _GridEpisodeTile({required this.season, required this.episode});
+  final int season;
+  final int episode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final c = controller;
+      final saved =
+          c.hasSavedProgress.value && c.lastPlayedSeason.value == season && c.lastPlayedEpisode.value == episode;
+      final resumable = saved && c.lastPlayedPosition.value > Duration.zero;
+      if (DownloadService.supported) DownloadService.to.items.length; // rebuild on download changes
+      final dl = DownloadService.supported ? c.downloadFor(season, episode) : null;
+      final status = resumable ? ', resume' : (saved ? ', up next' : '');
+      final downloaded = dl?.state == DownloadState.complete ? ', downloaded' : '';
+      return Semantics(
+        button: true,
+        label: 'Episode $episode$status$downloaded',
+        excludeSemantics: true,
+        child: Material(
+          color: Colors.white.withValues(alpha: saved ? 0.16 : 0.07),
+          borderRadius: BorderRadius.circular(10),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => c.playEpisode(season, episode),
+            onLongPress: () => _episodeOptions(c, season, episode),
+            child: Stack(
+              children: [
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('$episode',
+                          style: TextStyle(
+                              color: saved ? Colors.white : Colors.white70,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              fontFeatures: const [FontFeature.tabularFigures()])),
+                      if (saved)
+                        Text(resumable ? 'Resume' : 'Up next',
+                            style: const TextStyle(
+                                color: Colors.white60, fontSize: 9.5, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                if (dl != null) Positioned(top: 5, right: 5, child: _TileDownloadBadge(item: dl)),
+                if (resumable)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: LinearProgressIndicator(
+                      value: c.progressFraction.value,
+                      minHeight: 3,
+                      backgroundColor: Colors.white12,
+                      valueColor: const AlwaysStoppedAnimation(kBrandPurple),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _TileDownloadBadge extends StatelessWidget {
+  const _TileDownloadBadge({required this.item});
+  final DownloadItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (item.state) {
+      case DownloadState.complete:
+        return Container(
+          width: 15,
+          height: 15,
+          decoration: const BoxDecoration(color: Color(0xFF3DDC84), shape: BoxShape.circle),
+          child: const Icon(Icons.check_rounded, size: 11, color: Colors.black),
+        );
+      case DownloadState.failed:
+        return const Icon(Icons.error_outline_rounded, size: 15, color: kBrandRed);
+      default:
+        return SizedBox(
+          width: 15,
+          height: 15,
+          child: CircularProgressIndicator(
+            value: item.state == DownloadState.queued ? null : item.progress.clamp(0.0, 1.0),
+            strokeWidth: 2,
+            color: kBrandPurple,
+            backgroundColor: Colors.white24,
+          ),
+        );
+    }
+  }
+}
+
+/// Long-press on a grid tile: play, and the download action that fits.
+void _episodeOptions(SubjectDetailController c, int season, int episode) {
+  final dl = DownloadService.supported ? c.downloadFor(season, episode) : null;
+  final saved =
+      c.hasSavedProgress.value && c.lastPlayedSeason.value == season && c.lastPlayedEpisode.value == episode;
+  final resumable = saved && c.lastPlayedPosition.value > Duration.zero;
+  Widget option(IconData icon, String title, VoidCallback onTap, {String? subtitle}) => ListTile(
+        leading: Icon(icon, color: Colors.white),
+        title: Text(title, style: const TextStyle(color: Colors.white)),
+        subtitle: subtitle == null ? null : Text(subtitle, style: const TextStyle(color: Colors.white54)),
+        onTap: () {
+          Get.back();
+          onTap();
+        },
+      );
+  Get.bottomSheet(
+    SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            child: Text('Season $season · Episode $episode',
+                style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+          ),
+          option(Icons.play_arrow_rounded, resumable ? 'Resume' : 'Play', () => c.playEpisode(season, episode)),
+          if (DownloadService.supported)
+            if (dl == null || dl.state == DownloadState.failed)
+              option(Icons.download_rounded, dl == null ? 'Download episode' : 'Retry download',
+                  () => c.download(season, episode))
+            else if (dl.state == DownloadState.complete)
+              option(Icons.delete_outline_rounded, 'Delete download', () => DownloadService.to.delete(dl),
+                  subtitle: formatBytes(dl.totalBytes))
+            else
+              option(Icons.close_rounded, 'Cancel download', () => DownloadService.to.delete(dl),
+                  subtitle: '${(dl.progress * 100).round()}% downloaded'),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+    backgroundColor: const Color(0xFF1F1F27),
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(14))),
+  );
 }
 
 class _MobileCast extends StatelessWidget {

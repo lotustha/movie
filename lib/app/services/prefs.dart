@@ -75,6 +75,14 @@ class AppPrefs extends GetxService {
   /// never deleted without asking.
   late final RxString deleteWatched = RxString(_s.read<String>(_kDeleteWatched) ?? 'whenFull');
 
+  /// Detail page: episodes as a number grid instead of rows.
+  late final RxBool episodeGrid = RxBool(_s.read<bool>('pref_episode_grid') ?? false);
+
+  void setEpisodeGrid(bool on) {
+    episodeGrid.value = on;
+    _s.write('pref_episode_grid', on);
+  }
+
   void setDownloadLimitGb(int gb) {
     downloadLimitGb.value = gb;
     _s.write(_kLimit, gb);
