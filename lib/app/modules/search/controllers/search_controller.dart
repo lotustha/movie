@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:movie/app/data/api_provider.dart';
+import 'package:movie/app/data/trending_list.dart';
 import 'package:movie/app/model/SearchSuggestWordModel.dart';
 import 'package:movie/app/model/subject_list.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
@@ -10,29 +11,40 @@ import 'package:pull_to_refresh/pull_to_refresh.dart';
 class SearchViewController extends GetxController {
   final ApiProvider apiProvider = Get.find<ApiProvider>();
   final _storage = GetStorage();
-  RxList<SearchSuggestWordModel> searchSuggestions =
-      <SearchSuggestWordModel>[].obs;
+
   // --- UI Controllers ---
   final TextEditingController searchController = TextEditingController();
   final RefreshController refreshController = RefreshController();
-  final FocusNode searchFocusNode = FocusNode(); // For non-TV text field
-  final FocusNode searchInputDisplayFocusNode =
-  FocusNode(); // For TV search input
 
-  // --- Reactive State ---
-  final isKeyboardFocused = false.obs;
-  final RxList<Subject> subjectsList = <Subject>[].obs;
+  // Focus Nodes
+  final FocusNode searchFocusNode = FocusNode(); // Mobile & Web
+  final FocusNode searchInputDisplayFocusNode = FocusNode(); // TV
+
+  // --- Observables ---
+  final isTv = false.obs;
+  final isKeyboardFocused = false.obs; // For TV On-screen keyboard
   final isLoading = false.obs;
   final isMoreLoading = false.obs;
-  final RxString searchQuery = ''.obs;
-  final isTv = true.obs;
-  final RxList<String> searchHistory = <String>[].obs;
 
-  // --- Internal State ---
+  // Data
+  RxList<SearchSuggestWordModel> searchSuggestions = <SearchSuggestWordModel>[].obs;
+  RxList<Subject> subjectsList = <Subject>[].obs;
+  RxList<String> searchHistory = <String>[].obs;
+  final RxString searchQuery = ''.obs;
+
+  // Result filter: 0 = all, 1 = movies, 2 = TV shows (the API's subjectType).
+  final RxInt searchType = 0.obs;
+
+  // "Popular right now" — shown on TV before anything is typed.
+  RxList<Subject> popularList = <Subject>[].obs;
+  final isPopularLoading = false.obs;
+
+  // --- Internals ---
   Timer? _debounce;
   String _currentQuery = '';
   int _currentPage = 1;
-  static const int _debounceTimeMs = 500;
+  int _searchRequest = 0;
+  static const int _debounceTimeMs = 800; // Debounce delay
   bool _hasMoreData = true;
 
   @override
@@ -40,19 +52,46 @@ class SearchViewController extends GetxController {
     super.onInit();
     _loadSearchHistory();
     _loadLastSearchResult();
-
-    // Listener for text changes.
     searchController.addListener(() {
       searchQuery.value = searchController.text;
-      onSearchChanged(searchController.text);
     });
+    _loadPopular();
+  }
 
-    // Listener for focus changes on the non-TV text field to trigger search.
-    searchFocusNode.addListener(() {
-      if (!searchFocusNode.hasFocus) {
-        submitSearch();
+  Future<void> _loadPopular() async {
+    final id = TrendingList.trendingList.first.id;
+    if (id == null) return;
+    isPopularLoading.value = true;
+    try {
+      final response = await apiProvider.getRankingList(id: id, page: 1, perPage: 24);
+      final list = rankingSubjects(response);
+      if (list is List) {
+        popularList.assignAll(list.map((e) => Subject.fromJson(e)));
       }
-    });
+    } catch (_) {
+    } finally {
+      isPopularLoading.value = false;
+    }
+  }
+
+  /// Switches the Movies / TV Shows filter and re-runs the current search.
+  void setSearchType(int type) {
+    if (searchType.value == type) return;
+    searchType.value = type;
+    final query = searchController.text.trim();
+    if (query.isNotEmpty) {
+      _debounce?.cancel();
+      search(query);
+    }
+  }
+
+  /// TV: pick a suggestion or recent search. Unlike [onSuggestionSelected] the
+  /// list stays put, so the D-pad focus that picked it isn't left on a
+  /// removed row.
+  void onTvSuggestionSelected(String word) {
+    _debounce?.cancel();
+    searchController.text = word;
+    search(word);
   }
 
   @override
@@ -60,120 +99,84 @@ class SearchViewController extends GetxController {
     searchController.dispose();
     refreshController.dispose();
     searchFocusNode.dispose();
-    searchInputDisplayFocusNode.dispose(); // Ensure disposal
+    searchInputDisplayFocusNode.dispose();
     _debounce?.cancel();
     super.onClose();
   }
 
-  // --- Search History & Cache Logic ---
-  void loadSearchSuggestions() async {
-    var response = await apiProvider.searchSuggestion(searchController.text);
-    if (response == null) return;
-    final List<SearchSuggestWordModel> myList = (response as List)
-        .map((e) => SearchSuggestWordModel.fromJson(e as Map<String, dynamic>))
-        .toList();
-    searchSuggestions.assignAll(myList);
-  }
+  // --- CORE LOGIC: Type vs Click ---
 
-  void _loadSearchHistory() {
-    List<dynamic>? storedHistory = _storage.read<List>('searchHistory');
-    if (storedHistory != null) {
-      searchHistory.assignAll(storedHistory.cast<String>());
+  /// 1. User Types: Load suggestions instantly, Debounce the Search
+  void onSearchInputChanged(String query) {
+    if (query.isEmpty) {
+      searchSuggestions.clear();
+      subjectsList.clear();
+      return;
     }
-  }
 
-  void _loadLastSearchResult() {
-    final lastQuery = _storage.read<String>('lastSearchQuery');
-    final lastResultsData = _storage.read<List>('lastSearchResults');
+    // Always fetch suggestions immediately
+    _fetchSuggestions(query);
 
-    if (lastQuery != null && lastResultsData != null) {
-      try {
-        final lastResults = lastResultsData
-            .map((data) => Subject.fromJson(data as Map<String, dynamic>))
-            .toList();
-        subjectsList.assignAll(lastResults);
-        _currentQuery = lastQuery;
-      } catch (e) {
-        // Clear corrupted data
-        _storage.remove('lastSearchQuery');
-        _storage.remove('lastSearchResults');
-      }
-    }
-  }
-
-  void _saveSearchQuery(String query) {
-    searchHistory.remove(query);
-    searchHistory.insert(0, query);
-    if (searchHistory.length > 10) {
-      searchHistory.removeLast();
-    }
-    _storage.write('searchHistory', searchHistory.toList());
-  }
-
-  void searchFromHistory(String query) {
-    searchController.text = query;
-    if (!isTv.value) {
-      submitSearch();
-    }
-  }
-
-  void clearSearchHistory() {
-    searchHistory.clear();
-    _storage.remove('searchHistory');
-  }
-
-  void onKeyTapped(String key) {
-    final currentText = searchController.text;
-    switch (key) {
-      case 'DEL':
-        if (currentText.isNotEmpty) {
-          searchController.text = currentText.substring(
-            0,
-            currentText.length - 1,
-          );
-        }
-        break;
-      case 'CLR':
-        searchController.clear();
-        break;
-      case ' ':
-        searchController.text = '$currentText ';
-        break;
-      default:
-        searchController.text = currentText + key;
-    }
-  }
-
-  void onSearchChanged(String query) {
-    if (!isTv.value) return;
-
+    // Debounce the actual "Result" search
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: _debounceTimeMs), () {
-      if (query.trim().isEmpty) {
-        subjectsList.clear();
-        _currentQuery = '';
-        _hasMoreData = true;
-      } else if (query.trim() != _currentQuery) {
+      if (query.trim().isNotEmpty) {
         search(query.trim());
       }
     });
   }
 
-  void submitSearch() {
-    final query = searchController.text.trim();
-    if (query == _currentQuery) return;
-
-    if (query.isEmpty) {
-      subjectsList.clear();
-      _currentQuery = '';
-      _hasMoreData = true;
-      return;
-    }
+  /// 2. User Clicks Suggestion: Cancel debounce, replace text, search immediately
+  void onSuggestionSelected(String word) {
+    // Cancel the "Typing" timer
     _debounce?.cancel();
-    search(query);
+
+    // Update Text
+    searchController.text = word;
+    searchController.selection = TextSelection.fromPosition(
+      TextPosition(offset: searchController.text.length),
+    );
+
+    // Clear suggestions to show results view
+    searchSuggestions.clear();
+
+    // Dismiss keyboard on mobile/tablet (keep focus on Web if needed, but usually dismiss)
+    if (!isTv.value) searchFocusNode.unfocus();
+
+    // Immediate Search
+    search(word);
+  }
+
+  /// 3. User Presses Enter
+  void submitSearch() {
+    searchSuggestions.clear();
+    if (!isTv.value) searchFocusNode.unfocus();
+    final query = searchController.text.trim();
+    if (query.isNotEmpty) {
+      _debounce?.cancel();
+      search(query);
+    }
+  }
+
+  // --- API ---
+
+  Future<void> _fetchSuggestions(String query) async {
+    try {
+      var response = await apiProvider.searchSuggestion(query);
+      // One request fires per keystroke; drop answers for text that has
+      // since changed so a slow "ba" can't overwrite "batman".
+      if (query != searchController.text) return;
+      if (response != null) {
+        final list = (response as List)
+            .map((e) => SearchSuggestWordModel.fromJson(e))
+            .toList();
+        searchSuggestions.assignAll(list);
+      }
+    } catch (_) {}
   }
 
   Future<void> search(String query) async {
+    final int request = ++_searchRequest;
     _currentQuery = query;
     _currentPage = 1;
     _hasMoreData = true;
@@ -181,70 +184,100 @@ class SearchViewController extends GetxController {
     subjectsList.clear();
 
     try {
-      final data = await apiProvider.searchMovies(query, page: _currentPage);
-      List<Subject> tempSubjects = (data as List)
-          .map((e) => Subject.fromJson(e as Map<String, dynamic>))
-          .toList();
+      final data = await apiProvider.searchMovies(query,
+          page: _currentPage, subjectType: searchType.value);
+      // A newer search (other text or filter) started while this one was in
+      // flight; it owns the results and the spinner.
+      if (request != _searchRequest) return;
+      List<Subject> results = (data as List).map((e) => Subject.fromJson(e)).toList();
+      subjectsList.assignAll(results);
 
-      subjectsList.assignAll(tempSubjects);
-
-      if (tempSubjects.isEmpty) {
-        _hasMoreData = false;
-      } else {
-        _saveSearchQuery(query);
-        _storage.write('lastSearchQuery', query);
-        _storage.write(
-          'lastSearchResults',
-          tempSubjects.map((s) => s.toJson()).toList(),
-        );
+      if (results.isNotEmpty) {
+        _addToHistory(query);
+        _saveLastSearchResult(query, results);
       }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to perform search: $e');
+      if (request == _searchRequest) Get.snackbar('Error', 'Search failed');
     } finally {
-      isLoading.value = false;
+      if (request == _searchRequest) isLoading.value = false;
     }
   }
 
   Future<void> loadMore() async {
-    if (isMoreLoading.value || !_hasMoreData || _currentQuery.isEmpty) {
-      if (!_hasMoreData) refreshController.loadNoData();
-      return;
-    }
-
+    if (isMoreLoading.value || !_hasMoreData || _currentQuery.isEmpty) return;
     isMoreLoading.value = true;
-    _currentPage++;
-
+    final nextPage = _currentPage + 1;
     try {
-      final data =
-      await apiProvider.searchMovies(_currentQuery, page: _currentPage);
+      final data = await apiProvider.searchMovies(_currentQuery,
+          page: nextPage, subjectType: searchType.value);
+      final List<Subject> more =
+          (data as List).map((e) => Subject.fromJson(e)).toList();
 
-      if (data.isEmpty) {
+      // MovieBox's tokenless search is server-rendered and ignores the page
+      // param — every page returns the same set. Append only subjects we
+      // haven't shown yet; when a page brings nothing new, there is no more
+      // data, so stop instead of looping on duplicates forever.
+      final existingIds = subjectsList.map((s) => s.subjectId).toSet();
+      final fresh = more.where((s) => existingIds.add(s.subjectId)).toList();
+
+      if (fresh.isEmpty) {
         _hasMoreData = false;
         refreshController.loadNoData();
       } else {
-        List<Subject> tempSubjects = (data as List)
-            .map((e) => Subject.fromJson(e as Map<String, dynamic>))
-            .toList();
-        subjectsList.addAll(tempSubjects);
+        _currentPage = nextPage;
+        subjectsList.addAll(fresh);
         refreshController.loadComplete();
       }
     } catch (e) {
-      Get.snackbar('Error', 'Failed to load more results: $e');
-      _currentPage--;
       refreshController.loadFailed();
     } finally {
       isMoreLoading.value = false;
     }
   }
 
-  void onResultTap(Subject subject) {
-    // Example navigation, replace with your actual navigation logic
-    //Get.to(() => SubjectDetailView(), arguments: subject);
-    Get.snackbar('Navigate', 'Tapped on ${subject.title}');
+  // --- History & TV Helpers ---
+  void _loadSearchHistory() {
+    List? stored = _storage.read<List>('searchHistory');
+    if (stored != null) searchHistory.assignAll(stored.cast<String>());
   }
 
-  void selectSuggestion(String s) {
-    searchController.text = s;
-    submitSearch();
+  void _addToHistory(String query) {
+    searchHistory.remove(query);
+    searchHistory.insert(0, query);
+    if (searchHistory.length > 10) searchHistory.removeLast();
+    _storage.write('searchHistory', searchHistory.toList());
+  }
+
+  void clearSearchHistory() {
+    searchHistory.clear();
+    _storage.remove('searchHistory');
+  }
+
+  void _saveLastSearchResult(String query, List<Subject> results) {
+    _storage.write('lastSearchQuery', query);
+    _storage.write('lastSearchResults', results.map((s) => s.toJson()).toList());
+  }
+
+  void _loadLastSearchResult() {
+    final q = _storage.read<String>('lastSearchQuery');
+    final r = _storage.read<List>('lastSearchResults');
+    if (q != null && r != null) {
+      _currentQuery = q;
+      subjectsList.assignAll(r.map((d) => Subject.fromJson(d)).toList());
+    }
+  }
+
+  void onTvKeyTapped(String key) {
+    final text = searchController.text;
+    if (key == 'DEL') {
+      if (text.isNotEmpty) searchController.text = text.substring(0, text.length - 1);
+    } else if (key == 'CLR') {
+      searchController.clear();
+    } else if (key == ' ') {
+      searchController.text = '$text ';
+    } else {
+      searchController.text = text + key;
+    }
+    onSearchInputChanged(searchController.text);
   }
 }

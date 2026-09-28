@@ -2,83 +2,146 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:movie/app/modules/Subject_Detail/views/subject_detail_view.dart';
+import 'package:movie/app_theme.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../model/subject_list.dart';
+import '../../../widgets/tv_focusable.dart';
 import '../controllers/video_player_controller.dart';
 
-class VideoPlayerView extends GetView<CustomVideoPlayerController> {
+part 'player_controls.dart';
+part 'player_episodes.dart';
+
+
+class VideoPlayerView extends StatefulWidget {
   const VideoPlayerView({super.key});
+
+  @override
+  State<VideoPlayerView> createState() => _VideoPlayerViewState();
+}
+
+class _VideoPlayerViewState extends State<VideoPlayerView> {
+  final CustomVideoPlayerController controller = Get.find();
+
+  // Holds keyboard focus whenever the controls are hidden, so the very first
+  // remote press "wakes up" the UI instead of doing nothing. When controls are
+  // visible, focus lives on the on-screen buttons and D-pad traversal works.
+  final FocusNode _rootNode = FocusNode(debugLabel: 'playerRoot', skipTraversal: true);
+  Worker? _controlsWorker;
+  double _lastTapDx = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Move focus to the root catcher when controls hide; the on-screen
+    // play/pause button auto-focuses itself when they show.
+    _controlsWorker = ever<bool>(controller.showControls, (visible) {
+      if (!visible) {
+        _rootNode.requestFocus();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controlsWorker?.dispose();
+    _rootNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _handleRootKey(FocusNode node, KeyEvent event) {
+    final k = event.logicalKey;
+    final isBack = k == LogicalKeyboardKey.goBack ||
+        k == LogicalKeyboardKey.escape ||
+        k == LogicalKeyboardKey.backspace;
+    // BACK acts on key-down only, but its key-up/repeat must be swallowed
+    // too: an unhandled BACK key-up reaches Android as a system back, which
+    // would leave the player right after closing a menu.
+    if (isBack && event is! KeyDownEvent) return KeyEventResult.handled;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    if (controller.showControls.value) controller.resetControlsTimer();
+
+    // Back / media keys work regardless of control visibility.
+    if (k == LogicalKeyboardKey.goBack ||
+        k == LogicalKeyboardKey.escape ||
+        k == LogicalKeyboardKey.backspace) {
+      controller.handleBackButtonPress();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaPlayPause ||
+        k == LogicalKeyboardKey.mediaPlay ||
+        k == LogicalKeyboardKey.mediaPause) {
+      controller.togglePlayPause();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaRewind) {
+      controller.rewind10Seconds();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaFastForward) {
+      controller.forward10Seconds();
+      return KeyEventResult.handled;
+    }
+
+    // If a settings panel or the up-next card is open, let its focused items
+    // handle navigation.
+    if (controller.activeSettingPanel.value != SettingPanel.None ||
+        controller.upNext.value != null) {
+      return KeyEventResult.ignored;
+    }
+
+    // Controls hidden: any key just wakes the UI up.
+    if (!controller.showControls.value) {
+      final isDpadOrSelect = k == LogicalKeyboardKey.arrowUp ||
+          k == LogicalKeyboardKey.arrowDown ||
+          k == LogicalKeyboardKey.arrowLeft ||
+          k == LogicalKeyboardKey.arrowRight ||
+          k == LogicalKeyboardKey.select ||
+          k == LogicalKeyboardKey.enter ||
+          k == LogicalKeyboardKey.gameButtonA ||
+          k == LogicalKeyboardKey.space;
+      if (isDpadOrSelect) {
+        controller.toggleControlsVisibility();
+        return KeyEventResult.handled;
+      }
+    }
+
+    // Controls visible: the focused button / progress bar handles the key
+    // (this ancestor only sees what they leave unhandled).
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final FocusNode keyboardListenerFocusNode = FocusNode();
-    // Request focus for the listener as soon as the view is built.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(keyboardListenerFocusNode);
-    });
+    final mq = MediaQuery.of(context);
+    final double screenWidth = mq.size.width;
+    // TVs navigate by D-pad; size captions bigger there. On phones/tablets a
+    // landscape width can exceed 600, so key off the shortest side instead —
+    // otherwise a phone gets the (too large) TV size sitting near the middle.
+    final bool isTv = mq.navigationMode == NavigationMode.directional;
+    final double shortestSide = mq.size.shortestSide;
+    final double subtitleFontSize =
+        isTv ? 30.0 : (shortestSide < 400 ? 15.0 : 18.0);
+    final double subtitleBottom = isTv ? 80.0 : 44.0;
+    // Above the scrub bar and buttons while the controls are showing.
+    final double subtitleBottomWithControls = isTv ? 170.0 : 130.0;
 
-    return Scaffold(
+    // System back (phone gesture, or a remote BACK nobody handled) follows the
+    // same steps as the remote: close menu → show controls → leave.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) controller.handleBackButtonPress();
+      },
+      child: Scaffold(
       backgroundColor: Colors.black,
-      body: KeyboardListener(
-        focusNode: keyboardListenerFocusNode,
-        autofocus: true,
-        // MODIFIED: The key handling logic is simplified and more robust for D-Pad navigation.
-        onKeyEvent: (KeyEvent event) {
-          // We only care about key down events.
-          if (event is! KeyDownEvent) return;
-
-          // If controls are visible, any key press should reset the auto-hide timer.
-          if (controller.showControls.value) {
-            controller.resetControlsTimer();
-          }
-
-          // Define the keys used for navigation and selection.
-          final isDpadKey =
-              event.logicalKey == LogicalKeyboardKey.arrowUp ||
-                  event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                  event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-                  event.logicalKey == LogicalKeyboardKey.arrowRight;
-
-          final isSelectKey = event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.enter;
-
-          // If controls are hidden, any D-pad or Select press should show them.
-          // This is the primary interaction to "wake up" the UI.
-          if (!controller.showControls.value && (isDpadKey || isSelectKey)) {
-            controller.toggleControlsVisibility();
-            return; // The event is handled, so we don't process it further.
-          }
-
-          // Handle global media and back keys. These work even if controls are hidden.
-          switch (event.logicalKey) {
-          // --- Media Keys ---
-            case LogicalKeyboardKey.mediaPlayPause:
-            case LogicalKeyboardKey.mediaPlay:
-            case LogicalKeyboardKey.mediaPause:
-              controller.togglePlayPause();
-              break;
-            case LogicalKeyboardKey.mediaRewind:
-              controller.rewind10Seconds();
-              break;
-            case LogicalKeyboardKey.mediaFastForward:
-              controller.forward10Seconds();
-              break;
-
-          // --- Back Button Logic ---
-            case LogicalKeyboardKey.backspace:
-            case LogicalKeyboardKey.escape:
-            // Use the new, improved controller method for back navigation.
-              controller.handleBackButtonPress();
-              break;
-
-          // --- D-Pad & Select Logic ---
-          // The default case is now empty. Once controls are visible, Flutter's
-          // built-in focus system handles D-pad navigation between the Focusable
-          // widgets. We don't need to manually manage it here, which is cleaner.
-            default:
-              break;
-          }
-        },
+      body: Focus(
+        focusNode: _rootNode,
+        // Controls start visible, so the play button takes initial focus; the
+        // root only grabs focus once the controls hide (see the `ever` above).
+        autofocus: false,
+        onKeyEvent: _handleRootKey,
         child: Obx(() {
           if (controller.errorMessage.isNotEmpty) {
             return Center(
@@ -91,11 +154,32 @@ class VideoPlayerView extends GetView<CustomVideoPlayerController> {
           }
 
           if (!controller.isPlayerReady.value) {
-            return const Center(child: CircularProgressIndicator());
+            final message = controller.loadingMessage.value;
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: Colors.white),
+                  if (message.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(message, style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                  ],
+                ],
+              ),
+            );
           }
 
           return GestureDetector(
             onTap: controller.toggleControlsVisibility,
+            // Double-tap the left / right half to skip 10s (touch devices).
+            onDoubleTapDown: (d) => _lastTapDx = d.localPosition.dx,
+            onDoubleTap: () {
+              if (_lastTapDx < screenWidth / 2) {
+                controller.rewind10Seconds();
+              } else {
+                controller.forward10Seconds();
+              }
+            },
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -116,9 +200,16 @@ class VideoPlayerView extends GetView<CustomVideoPlayerController> {
                   final captionText = controller.currentCaptionText.value;
                   if (controller.selectedCaption.value != null &&
                       captionText.isNotEmpty) {
-                    final formattedCaptionText = captionText.replaceAll(r'\N', '\n');
+                    // MODIFIED: Strip HTML tags and normalize newlines
+                    // RegExp(r'<[^>]*>') matches any string starting with < and ending with >
+                    final formattedCaptionText = captionText
+                        .replaceAll(r'\N', '\n')
+                        .replaceAll(RegExp(r'<[^>]*>'), '');
+
                     return Positioned(
-                      bottom: 80,
+                      bottom: controller.showControls.value
+                          ? subtitleBottomWithControls
+                          : subtitleBottom,
                       left: 24,
                       right: 24,
                       child: Center(
@@ -132,12 +223,14 @@ class VideoPlayerView extends GetView<CustomVideoPlayerController> {
                           child: Text(
                             formattedCaptionText,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 32,
+                            style: TextStyle(
+                              // Responsive base size × the user's saved multiplier.
+                              fontSize:
+                                  subtitleFontSize * controller.subtitleScale.value,
                               fontFamily: 'Noto Sans',
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              shadows: [
+                              shadows: const [
                                 Shadow(
                                   blurRadius: 5.0,
                                   color: Colors.black,
@@ -164,222 +257,44 @@ class VideoPlayerView extends GetView<CustomVideoPlayerController> {
                   ),
                 )),
 
-                // --- Settings Panel Overlay ---
+                // --- Settings Panel Overlay (Episodes / Quality) ---
                 Obx(() => _SettingsOverlay(
                   activePanel: controller.activeSettingPanel.value,
                 )),
+
+                // --- Audio & Subtitles sheet ---
+                Obx(() => _AudioSubtitlesSheet(
+                      open: controller.activeSettingPanel.value == SettingPanel.AudioSubtitles,
+                    )),
+
+                // --- Episodes panel ---
+                Obx(() => _EpisodesSheet(
+                      open: controller.activeSettingPanel.value == SettingPanel.Episodes,
+                    )),
+
+                // --- Up next (end of an episode) ---
+                Obx(() {
+                  final next = controller.upNext.value;
+                  if (next == null) return const SizedBox.shrink();
+                  final tv = _isTvLayout(context);
+                  return Positioned(
+                    right: tv ? 56 : null,
+                    bottom: tv ? 56 : null,
+                    child: _UpNextCard(
+                      key: ValueKey(next),
+                      season: next.$1,
+                      episode: next.$2,
+                      seconds: controller.upNextSeconds.value,
+                    ),
+                  );
+                }),
               ],
             ),
           );
         }),
       ),
-    );
-  }
-}
-
-// Converted to StatefulWidget to manage FocusNodes for all buttons.
-class _PlayerControlsOverlay extends StatefulWidget {
-  @override
-  State<_PlayerControlsOverlay> createState() => _PlayerControlsOverlayState();
-}
-
-class _PlayerControlsOverlayState extends State<_PlayerControlsOverlay> {
-  final CustomVideoPlayerController controller = Get.find();
-
-  // Create FocusNodes for all interactive elements to manage D-Pad navigation.
-  final FocusNode _playPauseFocusNode = FocusNode();
-  final FocusNode _backButtonFocusNode = FocusNode();
-  final FocusNode _rewindFocusNode = FocusNode();
-  final FocusNode _forwardFocusNode = FocusNode();
-  final FocusNode _episodesFocusNode = FocusNode();
-  final FocusNode _subtitlesFocusNode = FocusNode();
-  final FocusNode _qualityFocusNode = FocusNode();
-  final FocusNode _fitFocusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    // When the controls are shown, automatically focus the play/pause button.
-    ever(controller.showControls, (bool isVisible) {
-      if (isVisible && controller.activeSettingPanel.value == SettingPanel.None) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _playPauseFocusNode.requestFocus();
-        });
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    // Dispose all focus nodes to prevent memory leaks.
-    _playPauseFocusNode.dispose();
-    _backButtonFocusNode.dispose();
-    _rewindFocusNode.dispose();
-    _forwardFocusNode.dispose();
-    _episodesFocusNode.dispose();
-    _subtitlesFocusNode.dispose();
-    _qualityFocusNode.dispose();
-    _fitFocusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Colors.black.withOpacity(0.6),
-            Colors.transparent,
-            Colors.black.withOpacity(0.8),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const [0.0, 0.4, 0.8],
-        ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // --- Top Bar ---
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                _FocusableIconButton(
-                  focusNode: _backButtonFocusNode,
-                  icon: Icons.arrow_back_ios_new,
-                  onPressed: () => Get.back(), // Use new back logic
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        controller.subject.value?.title ?? "Loading...",
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (controller.resource.value?.seasons != null &&
-                          controller.resource.value?.seasons!.first.maxEp != 0)
-                        Obx(() => Text(
-                          "Season ${controller.selectedSeason.value} - Episode ${controller.selectedEpisode.value}",
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 14),
-                        )),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // --- Middle Controls ---
-          Obx(() {
-            return controller.isBuffering.value
-                ? const Center(child: CircularProgressIndicator())
-                : Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _FocusableIconButton(
-                  focusNode: _rewindFocusNode,
-                  icon: Icons.replay_10,
-                  onPressed: controller.rewind10Seconds,
-                ),
-                const SizedBox(width: 48),
-                Obx(() => _FocusableIconButton(
-                  focusNode: _playPauseFocusNode,
-                  autofocus: true,
-                  icon: controller.isPlaying.value
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_filled,
-                  iconSize: 80,
-                  onPressed: controller.togglePlayPause,
-                )),
-                const SizedBox(width: 48),
-                _FocusableIconButton(
-                  focusNode: _forwardFocusNode,
-                  icon: Icons.forward_10,
-                  onPressed: controller.forward10Seconds,
-                ),
-              ],
-            );
-          }),
-
-          // --- Bottom Bar ---
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      // Using the custom focusable progress indicator
-                      _FocusableVideoProgressIndicator(),
-                      GetBuilder<CustomVideoPlayerController>(builder: (_) {
-                        final position = controller.videoPlayerController.value.position;
-                        final duration = controller.videoPlayerController.value.duration;
-                        return Text(
-                          "${_formatDuration(position)} / ${_formatDuration(duration)}",
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-                if (controller.resource.value?.seasons != null &&
-                    controller.resource.value?.seasons!.first.maxEp != 0)
-                  const SizedBox(width: 24),
-                if (controller.resource.value?.seasons != null &&
-                    controller.resource.value?.seasons!.first.maxEp != 0)
-                  _FocusableIconButton(
-                    focusNode: _episodesFocusNode,
-                    icon: Icons.video_library_outlined,
-                    onPressed: () =>
-                        controller.openSettingPanel(SettingPanel.Episodes),
-                  ),
-                if (controller.captionList.isNotEmpty) const SizedBox(width: 12),
-                if (controller.captionList.isNotEmpty)
-                  _FocusableIconButton(
-                    focusNode: _subtitlesFocusNode,
-                    icon: Icons.subtitles_outlined,
-                    onPressed: () =>
-                        controller.openSettingPanel(SettingPanel.Subtitles),
-                  ),
-                const SizedBox(width: 12),
-                _FocusableIconButton(
-                  focusNode: _qualityFocusNode,
-                  icon: Icons.high_quality_outlined,
-                  onPressed: () =>
-                      controller.openSettingPanel(SettingPanel.Quality),
-                ),
-                const SizedBox(width: 12),
-                _FocusableIconButton(
-                  focusNode: _fitFocusNode,
-                  icon: Icons.fit_screen_outlined,
-                  onPressed: () => controller.openSettingPanel(SettingPanel.Fit),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final parts = d.toString().split('.').first.split(':');
-    if (d.inHours > 0) {
-      return "${parts[0]}:${parts[1]}:${parts[2]}";
-    }
-    return "${parts[1]}:${parts[2]}";
   }
 }
 
@@ -393,12 +308,11 @@ class _SettingsOverlay extends GetView<CustomVideoPlayerController> {
     switch (panel) {
       case SettingPanel.Episodes:
         return "Episodes";
-      case SettingPanel.Subtitles:
-        return "Subtitles";
       case SettingPanel.Quality:
-        return "Video Quality";
+        return "Quality & Picture";
       case SettingPanel.Fit:
         return "Screen Fit";
+      case SettingPanel.AudioSubtitles: // its own bottom sheet
       case SettingPanel.None:
         return "";
     }
@@ -406,7 +320,8 @@ class _SettingsOverlay extends GetView<CustomVideoPlayerController> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isOpen = activePanel != SettingPanel.None;
+    // Audio & Subtitles and Episodes have their own panels.
+    final bool isOpen = activePanel == SettingPanel.Quality || activePanel == SettingPanel.Fit;
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 300),
@@ -447,13 +362,12 @@ class _SettingsOverlay extends GetView<CustomVideoPlayerController> {
                     child: () {
                       switch (activePanel) {
                         case SettingPanel.Episodes:
-                          return _EpisodeSelectionPanel();
-                        case SettingPanel.Subtitles:
-                          return _SubtitleSelectionPanel();
+                          return const SizedBox.shrink();
                         case SettingPanel.Quality:
                           return _QualitySelectionPanel();
                         case SettingPanel.Fit:
                           return _FitSelectionPanel();
+                        case SettingPanel.AudioSubtitles:
                         case SettingPanel.None:
                           return const SizedBox.shrink();
                       }
@@ -469,111 +383,54 @@ class _SettingsOverlay extends GetView<CustomVideoPlayerController> {
   }
 }
 
-// --- Specific Setting Panels (No changes needed) ---
-class _EpisodeSelectionPanel extends GetView<CustomVideoPlayerController> {
+class _QualitySelectionPanel extends GetView<CustomVideoPlayerController> {
   @override
   Widget build(BuildContext context) {
-    final currentSeason = controller.resource.value?.seasons?.firstWhereOrNull((s) => s.se == controller.selectedSeason.value);
-    final episodeCount = currentSeason?.maxEp ?? 0;
-
-    return Column(
+    // Quality, then screen fit (the separate Fit button folded in here).
+    return Obx(() => ListView(
       children: [
-        _FocusableDropdown<int>(
-          title: "Season",
-          value: controller.selectedSeason.value,
-          items: controller.resource.value?.seasons?.map((s) => DropdownMenuItem<int>(
-            value: s.se,
-            child: Text("Season ${s.se}",
-                style: const TextStyle(color: Colors.white)),
-          ))
-              .toList() ??
-              [],
-          onChanged: (season) {
-            if (season != null) controller.changeSeason(season);
-          },
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: ListView.builder(
-            itemCount: episodeCount,
-            itemBuilder: (context, index) {
-              final episodeNumber = index + 1;
-              return Obx(() => _FocusableListItem(
-                text: "Episode $episodeNumber",
-                isSelected: controller.selectedEpisode.value == episodeNumber,
-                onPressed: () => controller.changeEpisode(episodeNumber),
-              ));
-            },
+        for (final stream in controller.streamInfoList)
+          _FocusableListItem(
+            text: "${stream.resolutions}p",
+            isSelected: controller.selectedStream.value?.id == stream.id,
+            onPressed: () => controller.changeStream(stream),
           ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 20, 4, 8),
+          child: Text('SCREEN FIT',
+              style: TextStyle(
+                  color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
         ),
+        for (final e in _FitSelectionPanel._options.entries)
+          _FocusableListItem(
+            text: e.key,
+            isSelected: controller.videoFit.value == e.value,
+            onPressed: () => controller.videoFit.value = e.value,
+          ),
       ],
-    );
-  }
-}
-
-class _SubtitleSelectionPanel extends GetView<CustomVideoPlayerController> {
-  @override
-  Widget build(BuildContext context) {
-    return Obx(() => controller.captionList.isEmpty
-        ? const Center(
-        child: Text("No subtitles available.",
-            style: TextStyle(color: Colors.white70)))
-        : ListView.builder(
-      itemCount: controller.captionList.length + 1,
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return _FocusableListItem(
-            text: "Off",
-            isSelected: controller.selectedCaption.value == null,
-            onPressed: () => controller.changeSubtitle(null),
-          );
-        }
-        final caption = controller.captionList[index - 1];
-        return Obx(() {
-          return _FocusableListItem(
-            text: caption.lanName ?? "Unknown",
-            isSelected: controller.selectedCaption.value?.id == caption.id,
-            onPressed: () => controller.changeSubtitle(caption),
-          );
-        });
-      },
     ));
   }
 }
 
-class _QualitySelectionPanel extends GetView<CustomVideoPlayerController> {
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: controller.streamInfoList.length,
-      itemBuilder: (context, index) {
-        final stream = controller.streamInfoList[index];
-        return Obx(() => _FocusableListItem(
-          text: "${stream.resolutions}p",
-          isSelected: controller.selectedStream.value?.id == stream.id,
-          onPressed: () => controller.changeStream(stream),
-        ));
-      },
-    );
-  }
-}
-
 class _FitSelectionPanel extends GetView<CustomVideoPlayerController> {
+  static const _options = <String, BoxFit>{
+    "Contain (Best Fit)": BoxFit.contain,
+    "Cover (Fill Screen)": BoxFit.cover,
+    "Stretch": BoxFit.fill,
+    "Fit Width": BoxFit.fitWidth,
+    "Fit Height": BoxFit.fitHeight,
+  };
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _FocusableListItem(
-          text: "Contain (Best Fit)",
-          isSelected: controller.videoFit.value == BoxFit.contain,
-          onPressed: () => controller.videoFit.value = BoxFit.contain,
-        ),
-        _FocusableListItem(
-          text: "Cover (Fill Screen)",
-          isSelected: controller.videoFit.value == BoxFit.cover,
-          onPressed: () => controller.videoFit.value = BoxFit.cover,
-        ),
-      ],
+    return ListView(
+      children: _options.entries
+          .map((e) => Obx(() => _FocusableListItem(
+                text: e.key,
+                isSelected: controller.videoFit.value == e.value,
+                onPressed: () => controller.videoFit.value = e.value,
+              )))
+          .toList(),
     );
   }
 }
@@ -588,48 +445,111 @@ class _FocusableVideoProgressIndicator
 
   @override
   Widget build(BuildContext context) {
-    return GetBuilder<CustomVideoPlayerController>(
-      builder: (controller) {
-        return Focus(
-          onKeyEvent: (node, event) {
-            if (event is KeyDownEvent) {
-              if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                controller.forward10Seconds();
-                return KeyEventResult.handled;
-              }
-              if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                controller.rewind10Seconds();
-                return KeyEventResult.handled;
-              }
-            }
-            return KeyEventResult.ignored;
-          },
-          child: Builder(
-            builder: (context) {
-              final isFocused = Focus.of(context).hasFocus;
-              return TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 1.0, end: isFocused ? 1.5 : 1.0),
-                duration: const Duration(milliseconds: 200),
-                builder: (context, scale, child) {
-                  return Transform.scale(
-                    scale: scale,
-                    child: VideoProgressIndicator(
-                      controller.videoPlayerController,
-                      allowScrubbing: true,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      colors: VideoProgressColors(
-                        playedColor: kAccentColor,
-                        bufferedColor: Colors.white.withOpacity(0.5),
-                        backgroundColor: Colors.white.withOpacity(0.2),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        );
+    return Focus(
+      // LEFT/RIGHT scrub (holding keeps going, faster the longer it's held);
+      // the seek happens on release. OK toggles play/pause.
+      onKeyEvent: (node, event) {
+        final k = event.logicalKey;
+        final dir = k == LogicalKeyboardKey.arrowRight
+            ? 1
+            : k == LogicalKeyboardKey.arrowLeft
+                ? -1
+                : 0;
+        if (dir != 0) {
+          if (event is KeyDownEvent) controller.scrubStep(dir, repeat: false);
+          if (event is KeyRepeatEvent) controller.scrubStep(dir, repeat: true);
+          if (event is KeyUpEvent) controller.commitScrub();
+          return KeyEventResult.handled;
+        }
+        if (event is KeyDownEvent &&
+            (k == LogicalKeyboardKey.select || k == LogicalKeyboardKey.enter)) {
+          controller.togglePlayPause();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
       },
+      onFocusChange: (f) {
+        if (!f) controller.commitScrub();
+      },
+      child: Builder(builder: (context) {
+        final focused = Focus.of(context).hasFocus;
+        return Obx(() {
+          final target = controller.scrubTarget.value;
+          final bar = target == null
+              ? VideoProgressIndicator(
+                  controller.videoPlayerController,
+                  allowScrubbing: true,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  colors: VideoProgressColors(
+                    playedColor: kBrandPurple,
+                    bufferedColor: Colors.white.withValues(alpha: 0.5),
+                    backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  ),
+                )
+              : _ScrubPreview(
+                  target: target,
+                  duration: controller.videoPlayerController.value.duration,
+                );
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            // Thicker when focused so the D-pad target is obvious.
+            transform: Matrix4.diagonal3Values(1, focused ? 1.8 : 1, 1),
+            transformAlignment: Alignment.center,
+            child: bar,
+          );
+        });
+      }),
+    );
+  }
+}
+
+/// Bar + time bubble at the scrub target while LEFT/RIGHT is being used.
+class _ScrubPreview extends StatelessWidget {
+  const _ScrubPreview({required this.target, required this.duration});
+  final Duration target;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final frac = duration.inMilliseconds <= 0
+        ? 0.0
+        : (target.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: SizedBox(
+        height: 4,
+        child: LayoutBuilder(builder: (context, c) {
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(color: Colors.white24),
+              FractionallySizedBox(
+                widthFactor: frac,
+                child: Container(color: Colors.white),
+              ),
+              Positioned(
+                left: c.maxWidth * frac - 36,
+                bottom: 12,
+                child: Container(
+                  width: 72,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(_formatPlayerTime(target),
+                      style: const TextStyle(
+                          color: Color(0xFF111114),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          fontFeatures: [FontFeature.tabularFigures()])),
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
     );
   }
 }
@@ -643,6 +563,7 @@ class _FocusableIconButton extends StatefulWidget {
   final FocusNode? focusNode;
 
   const _FocusableIconButton({
+    super.key, // ADDED super.key
     required this.icon,
     this.iconSize = 36,
     required this.onPressed,
@@ -696,6 +617,16 @@ class _FocusableIconButtonState extends State<_FocusableIconButton> {
     return Focus(
       focusNode: _focusNode,
       autofocus: widget.autofocus,
+      // 3. ADDED: Intercept Select/Enter to simulate a tap for TV Remotes
+      onKeyEvent: (node, event) {
+        if (event is KeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.select || event.logicalKey == LogicalKeyboardKey.enter) {
+            widget.onPressed();
+            return KeyEventResult.handled;
+          }
+        }
+        return KeyEventResult.ignored;
+      },
       child: InkWell(
         onTap: () {
           // It's good practice to ensure the node has focus before acting on it.
@@ -734,7 +665,8 @@ class _FocusableListItem extends StatefulWidget {
   final VoidCallback onPressed;
 
   const _FocusableListItem(
-      {required this.text, required this.isSelected, required this.onPressed});
+      {super.key, // ADDED super.key
+        required this.text, required this.isSelected, required this.onPressed});
 
   @override
   State<_FocusableListItem> createState() => _FocusableListItemState();
@@ -771,6 +703,16 @@ class _FocusableListItemState extends State<_FocusableListItem> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Focus(
         focusNode: _focusNode,
+        // 4. ADDED: Intercept Select/Enter for list items (Episodes, Quality, etc.)
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.select || event.logicalKey == LogicalKeyboardKey.enter) {
+              widget.onPressed();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
         child: InkWell(
           onTap: () {
             if (!_focusNode.hasFocus) {
@@ -779,28 +721,37 @@ class _FocusableListItemState extends State<_FocusableListItem> {
             widget.onPressed();
           },
           borderRadius: BorderRadius.circular(8),
+          // Same calm style as the Audio & Subtitles sheet: a check marks
+          // the active row, focus turns it solid white.
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
-                color: widget.isSelected
-                    ? kAccentColor
-                    : (_isFocused
-                    ? Colors.white.withOpacity(0.2)
-                    : Colors.white.withOpacity(0.1)),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _isFocused ? Colors.white : Colors.transparent,
-                  width: 2,
-                )
+              color: _isFocused ? Colors.white : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: Text(
-              widget.text,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 26,
+                  child: widget.isSelected
+                      ? Icon(Icons.check_rounded,
+                          size: 18, color: _isFocused ? const Color(0xFF111114) : Colors.white)
+                      : null,
+                ),
+                Expanded(
+                  child: Text(
+                    widget.text,
+                    style: TextStyle(
+                      color: _isFocused
+                          ? const Color(0xFF111114)
+                          : (widget.isSelected ? Colors.white : Colors.white70),
+                      fontSize: 16,
+                      fontWeight: widget.isSelected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -809,81 +760,3 @@ class _FocusableListItemState extends State<_FocusableListItem> {
   }
 }
 
-class _FocusableDropdown<T> extends StatefulWidget {
-  final String title;
-  final T value;
-  final List<DropdownMenuItem<T>> items;
-  final ValueChanged<T?> onChanged;
-
-  const _FocusableDropdown({
-    required this.title,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  @override
-  State<_FocusableDropdown<T>> createState() => _FocusableDropdownState<T>();
-}
-
-class _FocusableDropdownState<T> extends State<_FocusableDropdown<T>> {
-  bool _isFocused = false;
-  final FocusNode _focusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(_onFocusChange);
-  }
-
-  void _onFocusChange() {
-    if (mounted) {
-      setState(() {
-        _isFocused = _focusNode.hasFocus;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _focusNode.removeListener(_onFocusChange);
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Focus(
-      focusNode: _focusNode,
-      child: FormField<T>(
-        builder: (FormFieldState<T> state) {
-          return InputDecorator(
-            decoration: InputDecoration(
-              labelText: widget.title,
-              labelStyle:
-              TextStyle(color: _isFocused ? Colors.white : Colors.white70),
-              border:
-              OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.5))),
-              focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Colors.white, width: 2)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<T>(
-                value: widget.value,
-                isDense: true,
-                onChanged: widget.onChanged,
-                items: widget.items,
-                dropdownColor: const Color(0xFF1E1E1E),
-                icon: const Icon(Icons.arrow_drop_down, color: Colors.white),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}

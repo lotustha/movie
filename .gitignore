@@ -43,3 +43,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase config: lists every app/OAuth client in the project; regenerate with
+#   firebase apps:sdkconfig ANDROID 1:477116627826:android:b441d9493fb6079d8c3beb -o android/app/google-services.json
+/android/app/google-services.json
+
+# Local-only
+/lib.zip
+/.remember/
+/noonflix-promo/node_modules/
+/noonflix-promo/out/

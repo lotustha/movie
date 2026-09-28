@@ -1,15 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.lynoon.movie">
 
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- Downloads: progress notification + a foreground service for big files. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
 
-    <!-- These features correctly identify the app for a TV environment -->
+    <!-- Works on TV (leanback) AND phones/tablets — so leanback is NOT required. -->
     <uses-feature
         android:name="android.software.leanback"
-        android:required="true" />
+        android:required="false" />
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -17,7 +22,7 @@
     <application
         android:label="Noon Flix"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:banner="@drawable/app_banner">
         <activity
             android:name=".MainActivity"
@@ -54,12 +59,19 @@
             </intent-filter>
         </activity>
 
-        <provider
-            android:name=".TvContentProvider"
-            android:authorities="com.lynoon.movie.tv"
-            android:exported="true"
-            android:grantUriPermissions="true"
-            android:permission="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <!-- The launcher asks for our home-screen row right after install. -->
+        <receiver
+            android:name=".TvChannelReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.tv.action.INITIALIZE_PROGRAMS" />
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

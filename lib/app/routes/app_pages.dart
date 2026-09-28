@@ -6,6 +6,7 @@ import '../modules/home_screen/bindings/home_screen_binding.dart';
 import '../modules/home_screen/views/home_screen_view.dart';
 import '../modules/search/bindings/search_binding.dart';
 import '../modules/search/views/search_view.dart';
+import '../modules/splash/views/splash_view.dart';
 import '../modules/season_view/bindings/season_view_binding.dart';
 import '../modules/season_view/views/season_view_view.dart';
 import '../modules/video_player/bindings/video_player_binding.dart';
@@ -16,10 +17,19 @@ part 'app_routes.dart';
 class AppPages {
   AppPages._();
 
-  static const INITIAL = Routes.HOME_SCREEN;
+  static const splash = '/splash';
+  static const INITIAL = splash;
+
+  /// Detail arguments from a launcher link that arrived during the splash.
+  static Map<String, dynamic>? pendingDetailArgs;
 
   static final routes = [
 
+    GetPage(
+      name: splash,
+      page: () => const SplashView(),
+      transition: Transition.fadeIn,
+    ),
     GetPage(
       name: _Paths.SUBJECT_DETAIL,
       page: () => const SubjectDetailView(),

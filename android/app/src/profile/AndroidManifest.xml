@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Profile only: lets a local Mugen API (dart-define MUGEN_API=http://...) be reached. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

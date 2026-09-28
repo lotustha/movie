@@ -45,7 +45,6 @@ dependencies {
     implementation("androidx.tvprovider:tvprovider:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // --- FIX: Added the Gson library for parsing JSON data ---
-    implementation("com.google.code.gson:gson:2.10.1")
 }
+
 

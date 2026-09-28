@@ -1,8 +1,54 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:movie/app/modules/home_screen/views/side_nav.dart';
+import '../../../widgets/app_logo.dart';
 import '../controllers/home_screen_controller.dart';
 import 'content_area.dart';
+import 'ranking_chip_bar.dart';
+import 'mobile/mobile_shell.dart';
+import 'tv_home.dart';
+
+/// Small focusable icon for the top bar (D-pad + tap).
+class _FocusableTopIcon extends StatefulWidget {
+  const _FocusableTopIcon({required this.icon, required this.onPressed});
+  final IconData icon;
+  final VoidCallback onPressed;
+  @override
+  State<_FocusableTopIcon> createState() => _FocusableTopIconState();
+}
+
+class _FocusableTopIconState extends State<_FocusableTopIcon> {
+  bool _f = false;
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      onFocusChange: (v) => setState(() => _f = v),
+      onKeyEvent: (n, e) {
+        if (e is KeyDownEvent &&
+            (e.logicalKey == LogicalKeyboardKey.select ||
+                e.logicalKey == LogicalKeyboardKey.enter ||
+                e.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+          widget.onPressed();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _f ? Colors.white : Colors.white.withValues(alpha: 0.10),
+          ),
+          child: Icon(widget.icon,
+              color: _f ? Colors.black : Colors.white, size: 24),
+        ),
+      ),
+    );
+  }
+}
 
 class HomeScreenView extends GetView<HomeScreenController> {
   const HomeScreenView({super.key});
@@ -11,87 +57,68 @@ class HomeScreenView extends GetView<HomeScreenController> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Define the breakpoint for mobile/desktop layout
-        bool isMobile = constraints.maxWidth < 768;
-
-        if (isMobile) {
-          // Build the mobile layout with a toggleable overlay sidebar
-          return buildMobileLayout();
-        } else {
-          // Build the desktop/TV layout with a permanently visible sidebar
-          return buildDesktopLayout();
-        }
+        final bool isTv = constraints.maxWidth >= 768;
+        return isTv ? const Scaffold(body: TvHome()) : const MobileShell();
       },
     );
   }
 
-  // Widget for Tablet and TV view
-  Widget buildDesktopLayout() {
-    return const Scaffold(
-      body: Row(
+  // Brand + live clock, shown on the wide (desktop/TV) top bar.
+  Widget _clock(HomeScreenController controller) {
+    return Obx(() {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Sidebar is permanently visible
-          SideNavigationBar(),
-          // Content takes the remaining space
-          Expanded(
-            child: ContentArea(),
+          Text(
+            controller.currentTime.value,
+            style: Get.textTheme.titleMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            controller.currentDate.value,
+            style: Get.textTheme.bodySmall?.copyWith(color: Colors.white70),
           ),
         ],
-      ),
-    );
+      );
+    });
   }
 
-  // Widget for Mobile view
-  Widget buildMobileLayout() {
+  // Ranking-list home: brand + search top bar, a sticky category chip bar, and
+  // the ranked poster grid below it.
+  Widget _rankingScaffold({required bool isTv}) {
     return Scaffold(
-      // AppBar with a toggle icon only for mobile
-      appBar: AppBar(
-        title: Obx(() => Text(controller.selectedSubjectName.value)),
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: controller.toggleSideNav, // Simple toggle
-        ),
-      ),
-      body: GestureDetector(
-        // Swipe gestures to open/close the navigation
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null && details.primaryVelocity! > 200) {
-            controller.openSideNav();
-          } else if (details.primaryVelocity != null && details.primaryVelocity! < -200) {
-            controller.closeSideNav();
-          }
-        },
-        child: Stack(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
           children: [
-            // Main content area
-            const ContentArea(),
-
-            // Scrim (dark overlay) that appears over the content when nav is open
-            Obx(() {
-              if (!controller.isSideNavVisible.value) return const SizedBox.shrink();
-              return GestureDetector(
-                onTap: controller.closeSideNav, // Tap overlay to close
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                ),
-              );
-            }),
-
-            // The side navigation bar, animated
-            Obx(() {
-              return AnimatedPositioned(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                left: controller.isSideNavVisible.value ? 0 : -250, // Animate from off-screen
-                top: 0,
-                bottom: 0,
-                width: 250, // Give it a fixed width
-                child: const SideNavigationBar(),
-              );
-            }),
+            Padding(
+              padding: EdgeInsets.fromLTRB(isTv ? 24 : 16, 10, isTv ? 24 : 16, 6),
+              child: Row(
+                children: [
+                  const AppLogo(size: 30),
+                  const Spacer(),
+                  if (isTv) ...[
+                    _clock(controller),
+                    const SizedBox(width: 16),
+                  ],
+                  _FocusableTopIcon(
+                    icon: Icons.search,
+                    onPressed: () => Get.toNamed('/search'),
+                  ),
+                ],
+              ),
+            ),
+            RankingChipBar(isTv: isTv),
+            const Expanded(child: ContentArea()),
           ],
         ),
       ),
     );
   }
+
+  Widget buildDesktopLayout() => _rankingScaffold(isTv: true);
+
+  Widget buildMobileLayout() => _rankingScaffold(isTv: false);
 }

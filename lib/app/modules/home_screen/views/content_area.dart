@@ -17,15 +17,8 @@ class ContentArea extends StatelessWidget {
       child: Container(
           color: Get.theme.scaffoldBackgroundColor,
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            children: [
-              _buildHeader(controller),
-              Expanded(
-                // Display the API-driven content for the selected category.
-                child: _buildSubjectContent(controller),
-              ),
-            ],
-          )),
+          child: _buildSubjectContent(controller),
+      ),
     );
   }
 
@@ -76,21 +69,37 @@ class ContentArea extends StatelessWidget {
             );
           },
         ),
-        child: GridView.builder(
-          padding: const EdgeInsets.only(top: 16, bottom: 24),
-          gridDelegate:  SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: Get.width < 600 ? 2 : 4,
-            childAspectRatio:
-            145 / 258, // Adjusted for portrait image + text.
-            crossAxisSpacing: 20,
-            mainAxisSpacing: 20,
-          ),
-          itemCount: controller.subjectsList.length,
-          itemBuilder: (context, index) {
-            final Subject subject = controller.subjectsList[index];
-            // Display each item using the VideoThumbnail widget.
-            return VideoThumbnail(
-              subject: subject,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            // Scale the ranked grid from phone (2-up) to TV (6-up).
+            final crossAxisCount = w < 600
+                ? 2
+                : w < 900
+                    ? 4
+                    : w < 1300
+                        ? 5
+                        : 6;
+            final spacing = w < 600 ? 12.0 : 20.0;
+            return GridView.builder(
+              controller: controller.scrollController,
+              padding: const EdgeInsets.only(top: 16, bottom: 24),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                childAspectRatio:
+                    145 / 258, // Adjusted for portrait image + text.
+                crossAxisSpacing: spacing,
+                mainAxisSpacing: spacing,
+              ),
+              itemCount: controller.subjectsList.length,
+              itemBuilder: (context, index) {
+                final Subject subject = controller.subjectsList[index];
+                // Ranked order: 1-based position drives the poster badge.
+                return VideoThumbnail(
+                  subject: subject,
+                  rank: index + 1,
+                );
+              },
             );
           },
         ),
@@ -98,52 +107,6 @@ class ContentArea extends StatelessWidget {
     });
   }
 
-  // Builds the header with a search button and the live date/time display.
-  Widget _buildHeader(HomeScreenController controller) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Obx(() {
-            return Text(controller.selectedSubjectName.value, style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 28,
-                color: Colors.white
-            ),);
-          }),
-          Spacer(),
-          IconButton(
-            onPressed: () {
-              Get.toNamed('/search');
-            },
-            icon: const Icon(Icons.search, color: Colors.white),
-          ),
-          const SizedBox(width: 16),
-          Obx(() {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  controller.currentTime.value,
-                  style: Get.textTheme.headlineMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  controller.currentDate.value,
-                  style: Get.textTheme.bodyLarge?.copyWith(
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            );
-          }),
-        ],
-      ),
-    );
-  }
+
 }
 

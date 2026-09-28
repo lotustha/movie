@@ -7,37 +7,41 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-// Import window_manager for Windows-specific code.
+import 'package:get_storage/get_storage.dart';
+import 'package:movie/windowTitleBarController.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/routes/app_pages.dart';
 import 'app_theme.dart';
 import 'init_providers.dart';
 
-void main() async {
-  // Always required on startup.
-  WidgetsFlutterBinding.ensureInitialized();
+// -----------------------------------------------------------
+// CONTROLLER: Manages Window Bar Visibility
+// -----------------------------------------------------------
 
-  // --- PLATFORM-SPECIFIC INITIALIZATION ---
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  PaintingBinding.instance.imageCache.maximumSize = 100;
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 50 << 20;
+
   if (!kIsWeb) {
-    // --- Windows-Specific Setup ---
     if (Platform.isWindows) {
       await windowManager.ensureInitialized();
-      WindowOptions windowOptions = const WindowOptions(
-        titleBarStyle: TitleBarStyle.hidden,
+
+      const windowOptions = WindowOptions(
+        titleBarStyle: TitleBarStyle.hidden, // 👈 hide native bar
         center: true,
       );
+
       windowManager.waitUntilReadyToShow(windowOptions, () async {
-        await windowManager.setFullScreen(true);
         await windowManager.show();
         await windowManager.focus();
       });
-    }
-    // --- Android-Specific Setup ---
-    else if (Platform.isAndroid) {
+    } else if (Platform.isAndroid) {
       final view = WidgetsBinding.instance.platformDispatcher.views.first;
       final double shortestSide =
           view.physicalSize.shortestSide / view.devicePixelRatio;
+
       const double tabletBreakpoint = 600.0;
 
       if (shortestSide >= tabletBreakpoint) {
@@ -50,12 +54,22 @@ void main() async {
     }
   }
 
-  // --- Common Initialization for All Platforms ---
+  // Load saved data (Continue Watching, My List, progress, caches) before any
+  // screen reads it; otherwise the first reads see an empty store.
+  await GetStorage.init();
+
   intiProviders();
+  await initAsyncServices();
   runApp(const MyApp());
 }
 
-// MODIFIED: Converted to a StatefulWidget to manage the deep link listener's lifecycle.
+// -----------------------------------------------------------
+// CUSTOM WINDOW BAR FOR WINDOWS
+// -----------------------------------------------------------
+
+// -----------------------------------------------------------
+// APP
+// -----------------------------------------------------------
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -64,7 +78,6 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  // --- NEW: Deep Link Handling Logic from the Guide ---
   late AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
@@ -80,44 +93,57 @@ class _MyAppState extends State<MyApp> {
     super.dispose();
   }
 
-  /// Initializes the listener for incoming app links.
   Future<void> initDeepLinks() async {
     _appLinks = AppLinks();
 
-    // Listen for incoming deep links while the app is running.
     _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
       debugPrint('Received deep link: $uri');
       _handleDeepLink(uri);
     });
   }
 
-  /// Parses the deep link URI and navigates to the correct screen.
+  // Launcher rows link to flutter-tv-app://com.lynoon.movie/details/<id>
+  // (Trending) and /resume/<id> (Play Next).
   void _handleDeepLink(Uri uri) {
-    // Example URI from Google TV: flutter-tv-app://com.lynoon.movie/details/12345
-    if (uri.scheme == 'flutter-tv-app' && uri.host == 'com.lynoon.movie') {
-      final pathSegments = uri.pathSegments;
-      // Ensure the link is for a details page, e.g., /details/some_id
-      if (pathSegments.length == 2 && pathSegments.first == 'details') {
-        final subjectId = pathSegments.last;
-        // Use GetX to navigate, passing the movie's ID as an argument.
-        // This assumes a '/details' route is defined in your AppPages.
-        Get.toNamed(Routes.SUBJECT_DETAIL, arguments: subjectId);
-      }
+    if (uri.host != 'com.lynoon.movie') return;
+    if (uri.scheme != 'flutter-tv-app' && uri.scheme != 'noon-tv-app') return;
+    final segments = uri.pathSegments;
+    if (segments.length != 2) return;
+    final action = segments.first;
+    if (action != 'details' && action != 'resume') return;
+    final args = {'id': segments.last, 'resume': action == 'resume'};
+
+    // A cold start lands here during the splash, which replaces the whole
+    // stack when it finishes; it opens the pending link after that.
+    if (Get.currentRoute.isEmpty || Get.currentRoute == AppPages.splash) {
+      AppPages.pendingDetailArgs = args;
+      return;
+    }
+    // Opening a second title from the launcher replaces the first.
+    if (Get.currentRoute == Routes.SUBJECT_DETAIL) {
+      Get.offNamed(Routes.SUBJECT_DETAIL, arguments: args, preventDuplicates: false);
+    } else {
+      Get.toNamed(Routes.SUBJECT_DETAIL, arguments: args, preventDuplicates: false);
     }
   }
-  // --- END: Deep Link Handling Logic ---
 
   @override
   Widget build(BuildContext context) {
+    // 1. Initialize the controller here so it is available globally
+    final titleBarController = Get.put(WindowTitleBarController());
+
     return KeyboardListener(
-      focusNode: FocusNode(), // Required to capture key events.
+      focusNode: FocusNode(),
       autofocus: true,
       onKeyEvent: (KeyEvent event) {
         if (event is KeyDownEvent) {
           if (!kIsWeb &&
               Platform.isWindows &&
               event.logicalKey == LogicalKeyboardKey.escape) {
+
+            // If exiting full screen via ESC, also ensure the bar comes back
             windowManager.setFullScreen(false);
+            titleBarController.show();
           }
         }
       },
@@ -131,7 +157,82 @@ class _MyAppState extends State<MyApp> {
           theme: AppTheme.darkTheme,
           initialRoute: AppPages.INITIAL,
           getPages: AppPages.routes,
+          builder: (context, child) {
+            return Scaffold(
+              body: Column(
+                children: [
+                  // 2. Logic to show/hide the custom bar
+                  if (!kIsWeb && Platform.isWindows)
+                    Obx(() => titleBarController.isVisible.value
+                        ? const CustomWindowBar()
+                        : const SizedBox.shrink()),
+
+                  Expanded(child: child ?? const SizedBox()),
+                ],
+              ),
+            );
+          },
         ),
+      ),
+    );
+
+  }
+
+}class CustomWindowBar extends StatelessWidget {
+  const CustomWindowBar({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      color: Colors.black.withOpacity(0.9),
+      child: Row(
+        children: [
+          // Drag area
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onPanStart: (_) => windowManager.startDragging(),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "NoonFlix",
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Minimize
+          IconButton(
+            icon: const Icon(Icons.remove, color: Colors.white),
+            onPressed: () => windowManager.minimize(),
+            iconSize: 20,
+            splashRadius: 20,
+          ),
+
+          // Maximize / Restore
+          IconButton(
+            icon: const Icon(Icons.crop_square, color: Colors.white),
+            onPressed: () async {
+              bool isMax = await windowManager.isMaximized();
+              isMax ? windowManager.unmaximize() : windowManager.maximize();
+            },
+            iconSize: 20,
+            splashRadius: 20,
+          ),
+
+          // Close
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.redAccent),
+            onPressed: () => windowManager.close(),
+            iconSize: 20,
+            splashRadius: 20,
+          ),
+        ],
       ),
     );
   }
