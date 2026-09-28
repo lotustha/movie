@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 
 import '../../../../../app_theme.dart';
 import '../../../../data/api_provider.dart';
 import '../../../../model/subject_list.dart';
 import '../../../../services/prefs.dart';
-import '../../controllers/home_screen_controller.dart';
+import '../../../../widgets/skeleton.dart';
 import 'mobile_common.dart';
 
 /// The site's browse facets (themoviebox.xyz /web/film and /web/tv-series).
@@ -78,6 +79,41 @@ class _SearchTabState extends State<SearchTab> {
   bool _hasMore = false;
   int _page = 1;
   int _request = 0; // drops answers to superseded queries
+
+  final GetStorage _store = GetStorage();
+  static const _kHistory = 'searchHistory';
+  late List<String> _history = [...(_store.read<List>(_kHistory) ?? const []).map((e) => '$e')];
+
+  /// Newest first, no repeats (case-insensitive), at most 10.
+  void _remember(String q) {
+    q = q.trim();
+    if (q.length < 2) return;
+    setState(() {
+      _history.removeWhere((h) => h.toLowerCase() == q.toLowerCase());
+      _history.insert(0, q);
+      if (_history.length > 10) _history = _history.sublist(0, 10);
+    });
+    _store.write(_kHistory, _history);
+  }
+
+  void _forget(String q) {
+    setState(() => _history.remove(q));
+    _store.write(_kHistory, _history);
+  }
+
+  void _clearHistory() {
+    setState(() => _history.clear());
+    _store.write(_kHistory, _history);
+  }
+
+  /// A recent or trending term: put it in the box and search.
+  void _searchFor(String q) {
+    _text.text = q;
+    _text.selection = TextSelection.collapsed(offset: q.length);
+    FocusScope.of(context).unfocus();
+    _remember(q);
+    _load();
+  }
 
   String get _query => _text.text.trim();
   bool get _filtering => _picked.isNotEmpty || _kind != _Kind.all || _sort != 'ForYou';
@@ -237,7 +273,10 @@ class _SearchTabState extends State<SearchTab> {
           child: TextField(
             controller: _text,
             onChanged: (_) => _changed(),
-            onSubmitted: (_) => _load(),
+            onSubmitted: (q) {
+              _remember(q);
+              _load();
+            },
             textInputAction: TextInputAction.search,
             style: const TextStyle(color: Colors.white, fontSize: 16),
             cursorColor: kBrandPurple,
@@ -304,7 +343,12 @@ class _SearchTabState extends State<SearchTab> {
         ),
         Expanded(
           child: _idle
-              ? const _TopSearches()
+              ? _IdleSearch(
+                  history: _history,
+                  onSearch: _searchFor,
+                  onRemove: _forget,
+                  onClear: _clearHistory,
+                )
               : _results.isEmpty
                   ? Center(
                       child: _loading
@@ -337,7 +381,15 @@ class _SearchTabState extends State<SearchTab> {
                                   width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)))
                           : LayoutBuilder(
                               builder: (_, box) =>
-                                  PosterTile(subject: _results[i], width: box.maxWidth, height: box.maxHeight),
+                                  PosterTile(
+                                    subject: _results[i],
+                                    width: box.maxWidth,
+                                    height: box.maxHeight,
+                                    onTap: () {
+                                      if (_query.isNotEmpty) _remember(_query);
+                                      showPreviewSheet(_results[i]);
+                                    },
+                                  ),
                             ),
                     ),
         ),
@@ -433,73 +485,216 @@ Future<String?> _optionsSheet(
   );
 }
 
-/// Netflix's idle search screen: what's popular, as wide rows.
-class _TopSearches extends StatelessWidget {
-  const _TopSearches();
+/// The idle search screen: your recent searches (tap to search again, ✕ to
+/// forget one, Clear all), then what everyone is searching for right now —
+/// MovieBox's live list, each term shown with its top title.
+class _IdleSearch extends StatefulWidget {
+  const _IdleSearch({
+    required this.history,
+    required this.onSearch,
+    required this.onRemove,
+    required this.onClear,
+  });
+  final List<String> history;
+  final ValueChanged<String> onSearch;
+  final ValueChanged<String> onRemove;
+  final VoidCallback onClear;
+
+  @override
+  State<_IdleSearch> createState() => _IdleSearchState();
+}
+
+class _IdleSearchState extends State<_IdleSearch> {
+  final ApiProvider _api = Get.find<ApiProvider>();
+  List<({String keyword, Subject subject})>? _top;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTop();
+  }
+
+  Future<void> _loadTop() async {
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    final list = await _api.topSearches();
+    if (!mounted) return;
+    final prefs = AppPrefs.to;
+    setState(() {
+      _loading = false;
+      _failed = list == null;
+      _top = list?.where((t) => !prefs.hideSubject(t.subject)).toList();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final c = Get.find<HomeScreenController>();
-    return Obx(() {
-      final list = dedupeTitles(c.subjectsList).take(20).toList();
-      if (list.isEmpty) {
-        return Center(
-          child: c.isLoading.value
-              ? const CircularProgressIndicator()
-              : const Text('Search for a title, or pick a filter.', style: TextStyle(color: Colors.white54)),
-        );
-      }
-      return ListView.builder(
+    final history = widget.history;
+    return RefreshIndicator(
+      onRefresh: _loadTop,
+      child: ListView(
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.only(bottom: 24),
-        itemCount: list.length + 1,
-        itemBuilder: (_, i) {
-          if (i == 0) {
-            return const Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Text('Top Searches',
-                  style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
-            );
-          }
-          final s = list[i - 1];
-          // The poster: a trailer's first frame is often just a studio card.
-          final still = s.cover?.url ?? s.trailer?.cover?.url;
-          return InkWell(
-            onTap: () => showPreviewSheet(s),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
+        children: [
+          if (history.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 4, 2),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 140,
-                    height: 76,
-                    child: still == null
-                        ? const ColoredBox(color: kCard)
-                        : CachedNetworkImage(
-                            imageUrl: posterUrl(still, width: 320),
-                            fit: BoxFit.cover,
-                            errorWidget: (_, _, _) => const ColoredBox(color: kCard),
-                          ),
+                  const Expanded(
+                    child: Text('Recent searches',
+                        style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(s.title ?? '',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  TextButton(
+                    onPressed: widget.onClear,
+                    style: TextButton.styleFrom(foregroundColor: Colors.white70),
+                    child: const Text('Clear all'),
                   ),
-                  IconButton(
-                    tooltip: 'Play',
-                    onPressed: () => openDetail(s, resume: true),
-                    icon: const Icon(Icons.play_circle_outline_rounded, color: Colors.white, size: 34),
-                  ),
-                  const SizedBox(width: 4),
                 ],
               ),
             ),
-          );
-        },
-      );
-    });
+            for (final q in history)
+              InkWell(
+                onTap: () => widget.onSearch(q),
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 4),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.history_rounded, color: Colors.white38, size: 22),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Text(q,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 15)),
+                      ),
+                      IconButton(
+                        tooltip: 'Remove "$q"',
+                        onPressed: () => widget.onRemove(q),
+                        icon: const Icon(Icons.close_rounded, color: Colors.white38, size: 20),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Text('Top Searches', style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w800)),
+                SizedBox(width: 8),
+                Icon(Icons.trending_up_rounded, color: kBrandPurple, size: 22),
+              ],
+            ),
+          ),
+          if (_loading)
+            Skeleton(
+              child: Column(
+                children: [
+                  for (var i = 0; i < 6; i++)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 3),
+                      child: Row(children: [
+                        Bone(width: 140, height: 76, radius: 0),
+                        SizedBox(width: 12),
+                        Expanded(child: Bone.text(fontSize: 15)),
+                        SizedBox(width: 60),
+                      ]),
+                    ),
+                ],
+              ),
+            )
+          else if (_failed)
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  const Text("Couldn't load top searches.", style: TextStyle(color: Colors.white54)),
+                  TextButton(onPressed: _loadTop, child: const Text('Retry')),
+                ],
+              ),
+            )
+          else if ((_top ?? const []).isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Nothing trending right now.', style: TextStyle(color: Colors.white54)),
+            )
+          else
+            for (final t in _top!) _TopSearchRow(keyword: t.keyword, subject: t.subject, onSearch: widget.onSearch),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopSearchRow extends StatelessWidget {
+  const _TopSearchRow({required this.keyword, required this.subject, required this.onSearch});
+  final String keyword;
+  final Subject subject;
+  final ValueChanged<String> onSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final art = subject.cover?.url;
+    final title = subject.title ?? keyword;
+    // The row is the trend itself: tap opens the title people are after;
+    // when the term differs from it ("sistas" vs "Tyler Perry's Sistas") the
+    // search icon runs the term instead.
+    final sameAsTitle = title.toLowerCase().contains(keyword.toLowerCase());
+    return InkWell(
+      onTap: () => showPreviewSheet(subject),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 140,
+              height: 76,
+              child: art == null
+                  ? const ColoredBox(color: kCard)
+                  : CachedNetworkImage(
+                      imageUrl: posterUrl(art, width: 320),
+                      fit: BoxFit.cover,
+                      alignment: const Alignment(0, -0.4),
+                      errorWidget: (_, _, _) => const ColoredBox(color: kCard),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+                  if (!sameAsTitle)
+                    Text('Searched as “$keyword”',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Search "$keyword"',
+              onPressed: () => onSearch(keyword),
+              icon: const Icon(Icons.search_rounded, color: Colors.white54, size: 22),
+            ),
+            IconButton(
+              tooltip: 'Play $title',
+              onPressed: () => openDetail(subject, resume: true),
+              icon: const Icon(Icons.play_circle_outline_rounded, color: Colors.white, size: 32),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

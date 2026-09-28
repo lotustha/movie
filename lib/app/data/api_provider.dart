@@ -140,6 +140,40 @@ class ApiProvider extends GetConnect {
     return (items: const <Subject>[], hasMore: false);
   }
 
+  /// What people are searching for right now (MovieBox's live list), each
+  /// term with its top result. Null when the server couldn't be reached.
+  Future<List<({String keyword, Subject subject})>?> topSearches() async {
+    try {
+      final response = await _dio.get('top-searches');
+      final items = response.data is Map ? response.data['items'] as List? : null;
+      if (response.statusCode != 200 || items == null) return null;
+      return [
+        for (final e in items)
+          if (e is Map && e['item'] is Map)
+            (
+              keyword: '${e['keyword']}',
+              subject: Subject.fromJson(_searchItem(Map<String, dynamic>.from(e['item'] as Map))),
+            ),
+      ];
+    } catch (error) {
+      print('topSearches error: $error');
+      return null;
+    }
+  }
+
+  /// A normalised search result as the MovieBox subject shape.
+  static Map<String, dynamic> _searchItem(Map<String, dynamic> r) => {
+        'subjectId': r['subjectId'],
+        'subjectType': r['type'] == 'tv' ? 2 : 1,
+        'title': r['title'],
+        'detailPath': r['id'],
+        'cover': r['poster'] == null ? null : {'url': r['poster']},
+        'releaseDate': r['releaseDate'],
+        'genre': (r['genres'] as List? ?? []).join(','),
+        'countryName': r['country'],
+        'imdbRatingValue': r['rating'],
+      };
+
   /// A site tab's rows (`operatingList`), e.g. the 18+ tab (9).
   Future fetchTab(int tabId) async {
     try {
