@@ -13,6 +13,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/device.dart';
 import '../../../services/download_service.dart';
 import '../../account/tv_sign_in_view.dart';
+import '../../vip/vip_unlock.dart';
 import '../../../model/subject_list.dart';
 import '../../video_player/bindings/video_player_binding.dart';
 import '../../video_player/views/video_player_view.dart';
@@ -115,6 +116,7 @@ class SubjectDetailController extends GetxController {
   Future<void> download(int season, int episode) async {
     final s = subject.value;
     if (s == null) return;
+    if (!await ensureVipAccess()) return;
     final existing = downloadFor(season, episode);
     if (existing != null && existing.state == DownloadState.failed) {
       await DownloadService.to.retry(existing);
@@ -384,6 +386,12 @@ class SubjectDetailController extends GetxController {
     if (Device.isTv && !AuthService.to.isSignedIn) {
       await Get.to(() => const TvSignInView());
       if (!AuthService.to.isSignedIn) return;
+    }
+    // VIP time (one rewarded ad = 30 minutes). A downloaded episode plays
+    // offline without it: it was unlocked when it was downloaded.
+    if (DownloadService.to.offlineStream(subject.value?.subjectId, season, episode) == null &&
+        !await ensureVipAccess()) {
+      return;
     }
 
     // Block the trailer from here on, even one still initializing (see

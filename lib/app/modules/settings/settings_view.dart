@@ -12,6 +12,8 @@ import '../../services/device.dart';
 import '../../services/download_service.dart';
 import '../../services/prefs.dart';
 import '../../services/sync_service.dart';
+import '../../services/vip_service.dart';
+import '../vip/vip_unlock.dart';
 import '../../widgets/tv_focusable.dart';
 import '../account/link_tv_view.dart';
 import '../account/tv_sign_in_view.dart';
@@ -91,6 +93,22 @@ class SettingsView extends StatelessWidget {
                         Get.offAll(() => const TvSignInView(required: true), transition: Transition.fadeIn);
                       }
                     },
+                  ),
+                ],
+                if (VipService.to.paywall.value == true) ...[
+                  const _Header('VIP'),
+                  _Tile(
+                    icon: Icons.workspace_premium_rounded,
+                    title: VipService.to.subscribed.value
+                        ? 'VIP subscription'
+                        : VipService.to.remaining == null
+                            ? 'Get VIP time'
+                            : 'VIP · ${formatRemaining(VipService.to.remaining!)} left',
+                    subtitle: tv
+                        ? 'Watch an ad on your phone; this TV gets the same time.'
+                        : 'One short ad = ${VipService.to.minutesPerAd.value} minutes of unlimited viewing.',
+                    trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+                    onTap: () => tv ? ensureVipAccess() : showVipSheet(),
                   ),
                 ],
                 const _Header('Viewing activity'),

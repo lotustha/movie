@@ -38,6 +38,7 @@ dependencies:
   package_info_plus: ^10.2.1
   volume_controller: ^3.7.1
   screen_brightness: ^2.1.11
+  google_mobile_ads: ^9.1.0
 
 
 dev_dependencies:

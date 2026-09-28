@@ -14,6 +14,7 @@ import '../../controllers/home_screen_controller.dart';
 import '../../../../services/prefs.dart';
 import '../../../settings/adult_gate.dart';
 import '../../../../widgets/skeleton.dart';
+import '../../../vip/vip_unlock.dart';
 import 'category_view.dart';
 import 'mobile_common.dart';
 
@@ -215,6 +216,8 @@ class _TopBar extends StatelessWidget {
             children: [
               const AppLogo(size: 28),
               const Spacer(),
+              const VipChip(),
+              const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Search',
                 onPressed: openSearchTab,

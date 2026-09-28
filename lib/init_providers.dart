@@ -6,6 +6,7 @@ import 'app/services/download_service.dart';
 import 'app/services/device.dart';
 import 'app/services/prefs.dart';
 import 'app/services/sync_service.dart';
+import 'app/services/vip_service.dart';
 
 void intiProviders(){
   Get.lazyPut<ApiProvider>(()=>ApiProvider());
@@ -17,5 +18,6 @@ void intiProviders(){
 /// Services that need async setup before the first screen.
 Future<void> initAsyncServices() async {
   await Device.init();
+  Get.put(VipService(), permanent: true);
   await Get.putAsync(() => DownloadService().init(), permanent: true);
 }

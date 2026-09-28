@@ -8,6 +8,8 @@ import 'mobile_common.dart';
 import 'mobile_home.dart' show ContinueTile;
 import '../../../../services/auth_service.dart';
 import '../../../../services/download_service.dart';
+import '../../../../services/vip_service.dart';
+import '../../../vip/vip_unlock.dart';
 import '../../../downloads/downloads_view.dart';
 import '../../../settings/settings_view.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -52,6 +54,7 @@ class MyNoonFlixTab extends StatelessWidget {
             ),
           ),
           const SliverToBoxAdapter(child: _ProfileHeader()),
+          const SliverToBoxAdapter(child: _VipEntry()),
           if (DownloadService.supported) const SliverToBoxAdapter(child: _DownloadsEntry()),
           if (continuing.isNotEmpty) ...[
             SliverToBoxAdapter(
@@ -165,6 +168,69 @@ class _ProfileHeader extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      );
+    });
+  }
+}
+
+/// VIP time left, and "Watch ad" for 30 more minutes.
+class _VipEntry extends StatelessWidget {
+  const _VipEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    final vip = VipService.to;
+    return Obx(() {
+      if (vip.paywall.value != true) return const SizedBox.shrink();
+      final left = vip.remaining;
+      final subtitle = vip.subscribed.value
+          ? 'VIP subscription active'
+          : left == null
+              ? 'Watch a short ad for ${vip.minutesPerAd.value} minutes of unlimited viewing'
+              : '${formatRemaining(left)} left · watch another ad to reset to ${vip.minutesPerAd.value} min';
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Material(
+          borderRadius: BorderRadius.circular(12),
+          clipBehavior: Clip.antiAlias,
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [
+                kBrandPurple.withValues(alpha: 0.35),
+                kBrandRed.withValues(alpha: 0.22),
+              ]),
+            ),
+            child: InkWell(
+              onTap: showVipSheet,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: const BoxDecoration(gradient: kBrandGradient, shape: BoxShape.circle),
+                      child: const Icon(Icons.workspace_premium_rounded, color: Colors.white),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(left == null && !vip.subscribed.value ? 'Get VIP' : 'VIP',
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                          Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 12.5)),
+                        ],
+                      ),
+                    ),
+                    if (!vip.subscribed.value)
+                      const Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 30),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       );
     });

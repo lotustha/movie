@@ -22,6 +22,7 @@ import '../../../model/CaptionApiResponse.dart';
 import '../../../model/StreamInfo.dart';
 import '../../../services/download_service.dart';
 import '../../../services/prefs.dart';
+import '../../vip/vip_unlock.dart';
 
 // Enum to manage which settings panel is currently visible
 enum SettingPanel { None, Episodes, AudioSubtitles, Quality, Fit }
@@ -645,6 +646,7 @@ class CustomVideoPlayerController extends GetxController {
   Future<void> downloadEpisode(int season, int episode) async {
     final s = subject.value;
     if (s == null) return;
+    if (!await ensureVipAccess()) return;
     final existing = DownloadService.to.itemFor(s.subjectId, season, episode);
     if (existing != null && existing.state == DownloadState.failed) {
       await DownloadService.to.retry(existing);
@@ -815,6 +817,16 @@ class CustomVideoPlayerController extends GetxController {
     final offline = Get.isRegistered<DownloadService>()
         ? DownloadService.to.offlineStream(subject.value?.subjectId, season, episode)
         : null;
+    // Streaming the next episode needs VIP time; an expired window asks
+    // here, between episodes, never mid-play.
+    if (offline == null && !await ensureVipAccess()) {
+      loadingMessage.value = '';
+      if (wasReady) {
+        isPlayerReady.value = true;
+        videoPlayerController.play();
+      }
+      return;
+    }
     if (offline != null) {
       selectedSeason.value = season;
       selectedEpisode.value = episode;

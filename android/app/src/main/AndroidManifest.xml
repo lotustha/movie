@@ -80,6 +80,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- AdMob app "Mugen Movie" (rewarded ads for VIP time). -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1368455939381864~5850400463" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

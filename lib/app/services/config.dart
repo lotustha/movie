@@ -15,6 +15,9 @@ class AppConfig {
   static const String googleWebClientId =
       '477116627826-21uc8426g8mfqej8bq1d2co8vunasaq3.apps.googleusercontent.com';
 
+  /// AdMob rewarded unit "reward_ads": one ad = VIP minutes (the server says how many).
+  static const String rewardedAdUnit = 'ca-app-pub-1368455939381864/4498538771';
+
   /// Upstream tab with the 18+ ('midnight') rows.
   static const int adultTabId = 9;
 }
