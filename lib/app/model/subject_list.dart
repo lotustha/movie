@@ -120,8 +120,21 @@ class Subject {
     this.resource,
   });
 
+  /// subjectId → detailPath of every title parsed this session (home rows,
+  /// search, Continue Watching, My List). The detail request sends it along:
+  /// some titles have no detail upstream and the server finds them by this.
+  static final Map<String, String> _detailPaths = {};
+
+  static String? detailPathOf(String? subjectId) => subjectId == null ? null : _detailPaths[subjectId];
+
+  static dynamic _noteId(Map<String, dynamic> json) {
+    final id = json["subjectId"], path = json["detailPath"];
+    if (id is String && path is String && path.isNotEmpty) _detailPaths[id] = path;
+    return id;
+  }
+
   factory Subject.fromJson(Map<String, dynamic> json) => Subject(
-    subjectId: json["subjectId"],
+    subjectId: _noteId(json),
     subjectType: json["subjectType"],
     title: json["title"],
     description: json["description"],

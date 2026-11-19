@@ -191,7 +191,13 @@ class ApiProvider extends GetConnect {
   /// catalog doesn't have it.
   Future fetchSubject(String id) async {
     try {
-      final response = await _dio.get('detail/${Uri.encodeComponent(id)}');
+      // The title's slug rides along when we know it: titles the upstream
+      // gives no detail for are looked up by name on the server.
+      final path = Subject.detailPathOf(id);
+      final response = await _dio.get(
+        'detail/${Uri.encodeComponent(id)}',
+        queryParameters: {if (path != null) 'path': path},
+      );
       if (response.statusCode == 200 && response.data is Map) {
         return response.data;
       }
