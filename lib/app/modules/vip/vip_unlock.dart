@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -6,18 +8,34 @@ import '../../services/auth_service.dart';
 import '../../services/device.dart';
 import '../../services/vip_service.dart';
 import '../../widgets/tv_focusable.dart';
+import '../account/tv_sign_in_view.dart';
 
 /// Gate before playback / downloads: true when the viewer may go ahead now,
 /// else offers the unlock (a rewarded ad on a phone, the phone on a TV) and
 /// returns whether it worked.
 Future<bool> ensureVipAccess() async {
   final vip = VipService.to;
+  // First launch: the server hasn't said yet whether playback is gated. Ask
+  // (briefly) rather than assume it is free.
+  if (vip.paywall.value == null) {
+    await vip.refresh().timeout(const Duration(seconds: 6), onTimeout: () {});
+  }
   if (vip.hasAccess) return true;
   await vip.refresh(); // the time may have been earned on another device
   if (vip.hasAccess) return true;
+
   if (Device.isTv) {
+    // A TV can't show ads: its time comes from the account, so it needs one.
+    if (!AuthService.to.isSignedIn) {
+      await Get.to(() => const TvSignInView(), transition: Transition.fadeIn);
+      if (!AuthService.to.isSignedIn) return false;
+      await vip.refresh();
+      if (vip.hasAccess) return true;
+    }
     await Get.dialog(const _TvUnlockDialog());
   } else {
+    // A phone earns its time right here, with or without an account; the
+    // sheet stays up through the ad and closes itself once it is earned.
     await showVipSheet();
   }
   return vip.hasAccess;
@@ -42,29 +60,72 @@ class _VipSheet extends StatefulWidget {
 
 class _VipSheetState extends State<_VipSheet> {
   final VipService vip = VipService.to;
+  Timer? _tick;
+  DateTime _now = DateTime.now();
   String? _error;
 
+  /// Plays one rewarded ad with the sheet still up (the ad covers it), so a
+  /// failure is shown here, and whoever opened the sheet (the Play button's
+  /// gate) carries on only once the time is really earned.
   Future<void> _watch() async {
+    if (vip.loadingAd.value) return;
     setState(() => _error = null);
     final err = await vip.watchAd();
     if (!mounted) return;
-    if (err == null) {
-      Get.back();
-      Get.snackbar('VIP unlocked', '${vip.minutesPerAd.value} minutes added — enjoy!',
-          snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
-    } else {
+    if (err != null) {
       setState(() => _error = err);
+      return;
     }
+    Get.back();
+    Get.snackbar('VIP unlocked', '${vip.minutesPerAd.value} minutes added. Enjoy!',
+        snackPosition: SnackPosition.BOTTOM, colorText: Colors.white);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // One-second tick for the live countdown. VipService.remaining is the
+    // source of truth; this just forces a rebuild each second so the digits
+    // move. Cancelled in dispose so we never leak.
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  /// Live remaining derived from the service's `until` and our local clock.
+  /// Mirrors VipService.remaining but uses the sheet's own tick so the UI
+  /// updates every second instead of the service's 30 s cadence.
+  Duration? get _remaining {
+    final u = vip.until;
+    if (u == null) return null;
+    final left = u.difference(_now);
+    return left.isNegative ? null : left;
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
         child: Obx(() {
-          final left = vip.remaining;
-          final minutes = vip.minutesPerAd.value;
+          // Subscribe to vip.now so a server refresh or an ad grant wakes us
+          // even between our own ticks.
+          vip.now.value;
+          final left = _remaining;
+          final subscribed = vip.subscribed.value;
+          final hasTime = left != null;
+          final loading = vip.loadingAd.value;
+          final adIcon = loading
+              ? const SizedBox(
+                  width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
+              : const Icon(Icons.play_circle_outline_rounded, size: 20);
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -73,62 +134,72 @@ class _VipSheetState extends State<_VipSheet> {
                 height: 4,
                 decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               Container(
                 width: 64,
                 height: 64,
                 decoration: const BoxDecoration(gradient: kBrandGradient, shape: BoxShape.circle),
                 child: const Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 34),
               ),
-              const SizedBox(height: 14),
-              Text(left == null ? 'Unlock VIP to keep watching' : 'You have VIP',
+              const SizedBox(height: 18),
+              Text(subscribed ? 'VIP subscriber' : hasTime ? 'VIP active' : 'VIP',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 6),
-              Text(
-                left == null
-                    ? 'Watch one short ad to get $minutes minutes of unlimited movies and shows.'
-                    : '${formatRemaining(left)} left. Watch another ad to reset it to $minutes minutes.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-              ),
-              if (left != null && vip.subscribed.value == false) ...[
-                const SizedBox(height: 14),
+              const SizedBox(height: 20),
+              if (subscribed)
+                const Text('Your subscription is active.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4))
+              else if (hasTime)
+                _TimerDisplay(left)
+              else ...[
+                const Text('No VIP time right now.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4)),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: loading ? null : _watch,
+                  icon: adIcon,
+                  label: Text(loading ? 'Loading ad…' : 'Watch ad for ${vip.minutesPerAd.value} min'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kBrandPurple,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: kBrandPurple.withValues(alpha: 0.5),
+                    disabledForegroundColor: Colors.white70,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+              if (hasTime && !subscribed) ...[
+                const SizedBox(height: 16),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(3),
                   child: LinearProgressIndicator(
-                    value: (left.inSeconds / (minutes * 60)).clamp(0.0, 1.0),
-                    minHeight: 5,
+                    value: (left.inSeconds / (vip.minutesPerAd.value * 60)).clamp(0.0, 1.0),
+                    minHeight: 4,
                     backgroundColor: Colors.white12,
                     valueColor: const AlwaysStoppedAnimation(kBrandPurple),
                   ),
                 ),
-              ],
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: FilledButton.icon(
-                  onPressed: vip.loadingAd.value ? null : _watch,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
-                    disabledBackgroundColor: Colors.white70,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: loading ? null : _watch,
+                  icon: adIcon,
+                  label: Text(loading ? 'Loading ad…' : 'Reset to ${vip.minutesPerAd.value} min'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                   ),
-                  icon: vip.loadingAd.value
-                      ? const SizedBox(
-                          width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54))
-                      : const Icon(Icons.play_circle_fill_rounded),
-                  label: Text(vip.loadingAd.value ? 'Loading ad…' : 'Watch ad · +$minutes min'),
                 ),
-              ),
+              ],
               if (_error != null) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: kBrandRed, fontSize: 13)),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               Text(
                 AuthService.to.isSignedIn
                     ? 'VIP time is saved to your account, so it works on your TV too.'
@@ -140,6 +211,37 @@ class _VipSheetState extends State<_VipSheet> {
           );
         }),
       ),
+    );
+  }
+}
+
+/// Large monospace countdown (H:MM:SS or MM:SS) with a subtle glow that
+/// matches the brand gradient. Purely presentational — reads its duration
+/// from the parent, no state of its own.
+class _TimerDisplay extends StatelessWidget {
+  const _TimerDisplay(this.duration);
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = duration.inHours;
+    final m = duration.inMinutes.remainder(60);
+    final s = duration.inSeconds.remainder(60);
+    final text = h > 0
+        ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+        : '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    return ShaderMask(
+      shaderCallback: (bounds) => kBrandGradient.createShader(bounds),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 42,
+            fontWeight: FontWeight.w800,
+            fontFamily: 'monospace',
+            letterSpacing: 2,
+            height: 1.1,
+          )),
     );
   }
 }

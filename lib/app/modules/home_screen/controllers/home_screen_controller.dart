@@ -13,6 +13,7 @@ import 'package:movie/app/data/user_data.dart';
 import 'package:pull_to_refresh/pull_to_refresh.dart';
 
 import '../../../data/trending_list.dart';
+import '../../update/update_prompt.dart';
 import '../../../services/config.dart';
 import '../../../services/prefs.dart';
 import '../../../model/subject_list.dart';
@@ -119,6 +120,8 @@ class HomeScreenController extends GetxController {
     // Learn which titles are 18+ (to keep them out of the regular rows), even
     // while the section itself is off; nothing from it is shown then.
     fetchAdultFeed();
+    // Once Home has settled: offer a newer build if the download page has one.
+    Future.delayed(const Duration(seconds: 3), offerUpdateOnStart);
   }
 
   static const _kFeedCache = 'home_feed_cache';

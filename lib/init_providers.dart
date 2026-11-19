@@ -6,6 +6,7 @@ import 'app/services/download_service.dart';
 import 'app/services/device.dart';
 import 'app/services/prefs.dart';
 import 'app/services/sync_service.dart';
+import 'app/services/update_service.dart';
 import 'app/services/vip_service.dart';
 
 void intiProviders(){
@@ -13,6 +14,7 @@ void intiProviders(){
   Get.put(AppPrefs(), permanent: true);
   Get.put(AuthService(), permanent: true);
   Get.put(SyncService(), permanent: true);
+  Get.put(UpdateService(), permanent: true);
 }
 
 /// Services that need async setup before the first screen.

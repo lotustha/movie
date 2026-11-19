@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only folder shared with Android's installer: downloaded app updates
+     (UpdateService, <cache>/updates). -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

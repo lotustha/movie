@@ -5,6 +5,9 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../services/update_service.dart';
+import '../update/update_prompt.dart';
+
 import '../../../app_theme.dart';
 import '../../data/user_data.dart';
 import '../../services/auth_service.dart';
@@ -302,7 +305,12 @@ Future<bool> _confirm(String title, String body) async {
     content: Text(body, style: const TextStyle(color: Colors.white70)),
     actions: [
       TextButton(onPressed: () => Get.back(result: false), child: const Text('Cancel')),
-      FilledButton(autofocus: true, onPressed: () => Get.back(result: true), child: const Text('OK')),
+      TextButton(
+        autofocus: true,
+        style: TextButton.styleFrom(foregroundColor: Colors.white, backgroundColor: kBrandPurple),
+        onPressed: () => Get.back(result: true),
+        child: const Text('OK'),
+      ),
     ],
   ));
   return ok == true;
@@ -491,8 +499,11 @@ class _VersionTile extends StatelessWidget {
       builder: (context, snap) => _Tile(
         icon: Icons.info_outline_rounded,
         title: 'Noon Flix',
-        subtitle: snap.hasData ? 'Version ${snap.data!.version} (${snap.data!.buildNumber})' : null,
-        onTap: () {},
+        subtitle: snap.hasData
+            ? 'Version ${snap.data!.version} (${snap.data!.buildNumber})'
+                '${UpdateService.supported ? ' · check for updates' : ''}'
+            : null,
+        onTap: checkForUpdateManually,
       ),
     );
   }

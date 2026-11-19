@@ -2,7 +2,7 @@ name: movie
 
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: ^3.8.1
@@ -39,6 +39,9 @@ dependencies:
   volume_controller: ^3.7.1
   screen_brightness: ^2.1.11
   google_mobile_ads: ^9.1.0
+  dlna_dart: ^0.1.1
+  bonsoir: ^7.1.5
+  protobuf: ^3.1.0
 
 
 dev_dependencies:

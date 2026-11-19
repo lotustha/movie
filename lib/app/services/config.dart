@@ -18,6 +18,10 @@ class AppConfig {
   /// AdMob rewarded unit "reward_ads": one ad = VIP minutes (the server says how many).
   static const String rewardedAdUnit = 'ca-app-pub-1368455939381864/4498538771';
 
+  /// This app on the download site: mugenstream.fun/apps/noonflix lists the
+  /// latest version and APK, which in-app updates read.
+  static const String appSlug = 'noonflix';
+
   /// Upstream tab with the 18+ ('midnight') rows.
   static const int adultTabId = 9;
 }

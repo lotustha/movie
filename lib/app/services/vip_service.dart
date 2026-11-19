@@ -18,15 +18,20 @@ import 'device.dart';
 /// is earned, so it never waits on the callback.
 ///
 /// Whether playback needs VIP at all is the server's call (/access `paywall`):
-/// with the paywall off everything plays and no ad is ever asked for.
+/// with the paywall off everything plays and no ad is ever asked for. The
+/// last answer is kept on the device, so a start with the server out of reach
+/// (or blocked) gates the way the server last said to.
 class VipService extends GetxService {
   static VipService get to => Get.find<VipService>();
 
   final GetStorage _s = GetStorage();
   static const _kLocalUntil = 'vip_local_until';
 
-  /// Server state (null until the first answer).
-  final RxnBool paywall = RxnBool();
+  static const _kPaywall = 'vip_paywall';
+
+  /// Whether the server gates playback: its last answer, remembered across
+  /// starts. Null only until the very first answer on this device.
+  late final RxnBool paywall = RxnBool(_s.read<bool>(_kPaywall));
   final RxBool subscribed = false.obs; // a paid VIP subscription
   final Rxn<DateTime> serverUntil = Rxn<DateTime>(); // ad unlock on the account
   final Rxn<DateTime> subscriptionUntil = Rxn<DateTime>();
@@ -38,6 +43,11 @@ class VipService extends GetxService {
   /// Ticks every 30 s so countdowns and [hasAccess] stay current.
   final Rx<DateTime> now = DateTime.now().obs;
   Timer? _tick;
+
+  /// The server is asked again this often while the app stays open, so a
+  /// paywall switched on (or a subscription that lapsed) reaches a running app.
+  static const _refreshEvery = Duration(minutes: 10);
+  DateTime _lastRefresh = DateTime.fromMillisecondsSinceEpoch(0);
 
   final RxBool loadingAd = false.obs;
 
@@ -55,7 +65,10 @@ class VipService extends GetxService {
   @override
   void onInit() {
     super.onInit();
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) => now.value = DateTime.now());
+    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+      now.value = DateTime.now();
+      if (DateTime.now().difference(_lastRefresh) >= _refreshEvery) refresh();
+    });
     ever<String?>(AuthService.to.tokenRx, (_) => refresh());
     if (adsSupported) {
       // The developer's own phones get test ads from the real unit: watching
@@ -100,16 +113,19 @@ class VipService extends GetxService {
   /// off nothing is monetized and the viewer's own setting decides.
   bool get adultAllowed => subscribed.value || paywall.value == false;
 
-  /// May play now. Unknown paywall state (offline, first launch) counts as
-  /// free, so a network hiccup never locks anyone out.
+  /// May play now. The paywall state is the server's last answer; only a
+  /// device that has never had one (first launch, offline) counts as free,
+  /// and [ensureVipAccess] asks the server before relying on that.
   bool get hasAccess => paywall.value != true || isVip;
 
   Future<void> refresh() async {
+    _lastRefresh = DateTime.now();
     try {
       final r = await AuthService.to.dio.get('/api/mobile/v1/access', queryParameters: {'scope': 'movies'});
       final d = AuthService.dataOf(r);
       if (d == null) return;
       paywall.value = d['paywall'] == true;
+      _s.write(_kPaywall, paywall.value);
       subscribed.value = d['vip'] == true;
       serverUntil.value = DateTime.tryParse('${d['adUnlockExpiresAt'] ?? ''}')?.toLocal();
       subscriptionUntil.value = DateTime.tryParse('${d['vipExpiresAt'] ?? ''}')?.toLocal();
@@ -125,7 +141,7 @@ class VipService extends GetxService {
   /// message for the viewer.
   Future<String?> watchAd() async {
     if (!adsSupported) return 'Ads play on the NoonFlix phone app.';
-    if (loadingAd.value) return null;
+    if (loadingAd.value) return 'An ad is already loading.';
     loadingAd.value = true;
     final done = Completer<String?>();
     var earned = false;
