@@ -142,14 +142,9 @@ class CustomVideoPlayerController extends GetxController {
         DeviceOrientation.landscapeLeft,
       ]);
     }
-    // TVs and desktops: full immersive. Phones keep the navigation bar: with
-    // it hidden, Android spends the first BACK only revealing the bars, so
-    // leaving the player took two presses.
-    if (_isPhone) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
-    } else {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    }
+    // Full screen everywhere: status and navigation bars hidden. A swipe from
+    // the edge brings them back briefly, then they hide again on their own.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     // -------------------------------------------------------
     // LOAD PREFERENCES
